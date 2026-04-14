@@ -138,6 +138,8 @@ export default function HomePage() {
   const [harvestMeta, setHarvestMeta]   = useState<HarvestMeta | null>(null);
   const [harvesting, setHarvesting]     = useState(false);
   const [harvestResult, setHarvestResult] = useState<{ submitted: number; annotations: number } | null>(null);
+  const [seeding, setSeeding]           = useState(false);
+  const [seedDone, setSeedDone]         = useState(false);
 
   async function load(project: string | null = null) {
     setLoadError(null);
@@ -188,6 +190,17 @@ export default function HomePage() {
     }, 3_000);
     return () => clearInterval(poll);
   }, [harvesting]);
+
+  async function seedData() {
+    setSeeding(true);
+    const res = await fetch("/api/seed", { method: "POST" });
+    const data = await res.json();
+    setSeeding(false);
+    if (res.ok && data.ok) {
+      setSeedDone(true);
+      load(activeProject);
+    }
+  }
 
   async function runHarvest() {
     setHarvesting(true);
@@ -370,12 +383,31 @@ export default function HomePage() {
             <p className="text-sm font-medium mb-1">Nothing here yet.</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
               Proposals enter Govinuity when an agent (or you) submits a candidate decision. Once proposals arrive, review and ratify them on the{" "}
-              <a href="/review" className="text-[var(--accent)] hover:underline">Review</a> page. Ratified decisions become eligible for injection into agent context.
+              <Link href="/review" className="text-[var(--accent)] hover:underline">Review</Link> page. Ratified decisions become eligible for injection into agent context.
             </p>
           </div>
 
+          {/* Seed data */}
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Option 1 — Send a proposal manually</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Try with example data</p>
+            <p className="text-xs text-[var(--muted)] leading-relaxed">
+              Load a small set of example proposals and ratified decisions to see how the review queue and decision log work before connecting real session data.
+            </p>
+            {seedDone ? (
+              <p className="text-xs text-green-400">Example data loaded — check <Link href="/review" className="underline hover:text-green-300">Review</Link> and <Link href="/decisions" className="underline hover:text-green-300">Decisions</Link>.</p>
+            ) : (
+              <button
+                onClick={seedData}
+                disabled={seeding}
+                className="rounded border border-[var(--border)] px-3 py-1.5 text-xs text-[var(--foreground)] hover:bg-[var(--panel-2)] disabled:opacity-40 transition-colors"
+              >
+                {seeding ? "Loading…" : "Load example data"}
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Or submit a proposal manually</p>
             <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`curl -X POST http://localhost:3000/api/decisions \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -388,15 +420,10 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Option 2 — Automate surfacing from Claude Code sessions</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Or harvest from session files</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              The harvest script reads your Claude Code session files, extracts candidate decisions automatically, and submits them here.
+              The <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page scans session files from any agent tool and extracts candidate decisions automatically.
             </p>
-            <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`# Preview what would be surfaced (no changes)
-python3 scripts/harvest_proposals.py --dry-run
-
-# Stage and submit to /api/decisions
-python3 scripts/harvest_proposals.py --submit`}</pre>
           </div>
         </div>
       )}
@@ -404,15 +431,12 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
       {/* Surfacing pointer — visible when the app has data but no runs yet */}
       {(pendingReview > 0 || ratifiedCount > 0) && metrics?.runs.last_30d === 0 && (
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 space-y-2">
-          <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Automate surfacing</p>
+          <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Start harvesting</p>
           <p className="text-xs text-[var(--muted)] leading-relaxed">
-            The harvest script reads Claude Code session files and extracts candidate decisions automatically. Run it periodically to keep the review queue populated.
-          </p>
-          <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-3 text-xs leading-relaxed overflow-x-auto text-[var(--foreground)]">{`python3 scripts/harvest_proposals.py --submit`}</pre>
-          <p className="text-xs text-[var(--muted)]">
-            Injection sessions will appear on the <a href="/runs" className="text-[var(--accent)] hover:underline">Runs</a> page once you call{" "}
-            <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GET /api/memory</code> or generate a <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVERNED_CONTINUITY.md</code> from the{" "}
-            <a href="/decisions" className="text-[var(--accent)] hover:underline">Decisions</a> page.
+            Use the <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page to scan session files from your agent tool and keep the review queue populated automatically.
+            Injection sessions will appear on <Link href="/runs" className="text-[var(--accent)] hover:underline">Runs</Link> once you call{" "}
+            <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GET /api/memory</code> or generate a <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVERNED_CONTINUITY.md</code> from{" "}
+            <Link href="/decisions" className="text-[var(--accent)] hover:underline">Decisions</Link>.
           </p>
         </div>
       )}

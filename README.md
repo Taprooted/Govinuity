@@ -63,6 +63,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 The `data/` directory and database are created automatically on first run.
 
+> **Trusted-local only.** Govinuity has no authentication. Run it on your local machine or a private, trusted environment. Do not expose it to shared networks or the public internet.
+
 **Send your first proposal:**
 
 ```bash
