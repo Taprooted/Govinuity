@@ -223,7 +223,6 @@ const LOOKBACK_OPTIONS = [
 ];
 
 function HarvestPanel({ onHarvested }: { onHarvested: () => void }) {
-  const [open, setOpen] = useState(false);
   const [meta, setMeta] = useState<HarvestMeta | null>(null);
   const [hours, setHours] = useState(48);
   const [customHours, setCustomHours] = useState("");
@@ -311,101 +310,89 @@ function HarvestPanel({ onHarvested }: { onHarvested: () => void }) {
   const effectiveHours = customHours.trim() ? parseInt(customHours, 10) : hours;
 
   return (
-    <div className="rounded-lg border border-indigo-800/40 bg-[var(--surface)]">
-      <button
-        onClick={() => { setOpen((v) => !v); setResult(null); setError(null); }}
-        className="w-full text-left px-4 py-3 flex items-center gap-2"
-      >
-        <span className="text-sm font-medium">Harvest sessions</span>
-        <span className="text-xs text-[var(--muted)]">— extract candidate decisions from Claude Code session files</span>
-        {meta && (
-          <span className="text-xs text-[var(--muted)]">
-            · last run {timeAgo(meta.last_run_ts)} · {meta.last_submitted} submitted
-          </span>
-        )}
-        {autoInterval && nextRunIn && (
-          <span className="text-xs text-indigo-400 ml-1">· auto in {nextRunIn}</span>
-        )}
-        <span className="ml-auto text-xs text-[var(--muted)]">{open ? "▲" : "▼"}</span>
-      </button>
-      {open && (
-        <div className="border-t border-[var(--border)] px-4 py-3 space-y-3">
-          <p className="text-xs text-[var(--muted)] leading-relaxed">
-            Reads your Claude Code session files, extracts candidate decisions using Claude, and submits them as proposals for review.
-            Also posts run annotations (corrections, decisions followed/ignored) automatically.
-          </p>
-
-          {/* Lookback selector */}
-          <div className="space-y-1">
-            <p className="text-xs text-[var(--muted)]">Lookback window</p>
-            <div className="flex gap-1.5 flex-wrap">
-              {LOOKBACK_OPTIONS.map((opt) => (
-                <button
-                  key={opt.hours}
-                  onClick={() => { setHours(opt.hours); setCustomHours(""); }}
-                  className={`rounded border px-2.5 py-1 text-xs transition-colors ${
-                    hours === opt.hours && !customHours.trim()
-                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
-                      : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-              <input
-                type="number"
-                value={customHours}
-                onChange={(e) => setCustomHours(e.target.value)}
-                placeholder="custom h"
-                className="w-20 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700"
-              />
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={runHarvest}
-              disabled={running}
-              className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
-            >
-              {running ? "Harvesting…" : `Harvest last ${effectiveHours}h`}
-            </button>
-
-            {/* Auto-harvest toggle */}
-            <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
-              <span>Auto every</span>
-              {([4, 8, 24] as const).map((h) => (
-                <button
-                  key={h}
-                  onClick={() => setAutoInterval(autoInterval === h ? null : h)}
-                  className={`rounded border px-2 py-0.5 transition-colors ${
-                    autoInterval === h
-                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
-                      : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
-                  }`}
-                >
-                  {h}h
-                </button>
-              ))}
-              {autoInterval && <span className="text-indigo-400">· active (tab must stay open)</span>}
-            </div>
-          </div>
-
-          {/* Output */}
-          {result && (
-            <div className="space-y-1">
-              <p className="text-xs text-green-400">
-                Done · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} submitted · {result.annotations} annotation{result.annotations !== 1 ? "s" : ""} posted
-              </p>
-              {result.output.length > 0 && (
-                <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-2 text-xs text-[var(--muted)] leading-relaxed overflow-x-auto max-h-40">{result.output.join("\n")}</pre>
-              )}
-            </div>
+    <div className="rounded-lg border border-indigo-800/40 bg-[var(--surface)] px-4 py-4 space-y-3">
+      {/* Header */}
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-medium">Harvest sessions</p>
+          {meta?.last_run_ts && !running && (
+            <span className="text-xs text-[var(--muted)]">Last run {timeAgo(meta.last_run_ts)} · {meta.last_submitted ?? 0} submitted</span>
           )}
-          {error && <p className="text-xs text-red-400">{error}</p>}
+          {running && (
+            <span className="text-xs text-indigo-400 animate-pulse">Harvesting…</span>
+          )}
+        </div>
+        <p className="mt-0.5 text-xs text-[var(--muted)] leading-relaxed">
+          Reads your Claude Code session files, extracts candidate decisions, and submits them as proposals for review.
+          Also detects correction signals and posts them as run annotations automatically.
+        </p>
+      </div>
+
+      {/* Lookback + action row */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {LOOKBACK_OPTIONS.map((opt) => (
+          <button
+            key={opt.hours}
+            onClick={() => { setHours(opt.hours); setCustomHours(""); }}
+            className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+              hours === opt.hours && !customHours.trim()
+                ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+        <input
+          type="number"
+          value={customHours}
+          onChange={(e) => setCustomHours(e.target.value)}
+          placeholder="custom h"
+          className="w-20 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700"
+        />
+        <button
+          onClick={runHarvest}
+          disabled={running}
+          className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+        >
+          {running ? "Harvesting…" : `Harvest last ${effectiveHours}h`}
+        </button>
+      </div>
+
+      {/* Auto-harvest */}
+      <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+        <span>Auto-harvest every</span>
+        {([4, 8, 24] as const).map((h) => (
+          <button
+            key={h}
+            onClick={() => setAutoInterval(autoInterval === h ? null : h)}
+            className={`rounded border px-2 py-0.5 transition-colors ${
+              autoInterval === h
+                ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+            }`}
+          >
+            {h}h
+          </button>
+        ))}
+        {autoInterval && nextRunIn
+          ? <span className="text-indigo-400">· next in {nextRunIn} (tab must stay open)</span>
+          : <span>— tab must stay open</span>
+        }
+      </div>
+
+      {/* Result / error */}
+      {result && (
+        <div className="space-y-1">
+          <p className="text-xs text-green-400">
+            Done · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} submitted · {result.annotations} annotation{result.annotations !== 1 ? "s" : ""} posted
+          </p>
+          {result.output.length > 0 && (
+            <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-2 text-xs text-[var(--muted)] leading-relaxed overflow-x-auto max-h-40">{result.output.join("\n")}</pre>
+          )}
         </div>
       )}
+      {error && <p className="text-xs text-red-400">{error}</p>}
     </div>
   );
 }
