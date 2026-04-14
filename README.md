@@ -23,7 +23,7 @@ Surface → Review → Ratify → Inject → Measure
 
 | Step | What happens |
 |---|---|
-| **Surface** | An agent (or you) submits a candidate decision via `POST /api/decisions` with `status: "proposed"`. The harvest script (`scripts/harvest_proposals.py`) can do this automatically by reading Claude Code session files. |
+| **Surface** | Candidate decisions are extracted from agent session files via the **Harvest** page or `scripts/harvest_proposals.py`. Proposals can also be submitted directly via `POST /api/decisions`. |
 | **Review** | The Review page surfaces proposals for human assessment — with rationale, reversibility, and conflict signals |
 | **Ratify** | You approve, defer, reject, or supersede. Only approved decisions become eligible for injection |
 | **Inject** | On each session, eligible decisions are injected into agent context via API or a generated `GOVERNED_CONTINUITY.md` file |
@@ -36,10 +36,11 @@ This loop is the core of Govinuity. The rest is infrastructure for running it.
 ## What's in the repo
 
 - **Next.js local dashboard** — governance UI running at `localhost:3000`
+- **Harvest UI** — trigger extraction from session files or paste conversation text directly; auto-harvest on a timer; works with any agent tool
 - **Review UI** — human ratification of proposed decisions, with keyboard shortcuts
 - **Decision memory API** — `GET /api/memory` returns active decisions scoped to the requesting context
-- **Harvest script** — `scripts/harvest_proposals.py` reads Claude Code session files and extracts candidate decisions automatically
-- **Run logging and annotation** — every injection session is recorded and can be annotated (decision followed? correction required?)
+- **Harvest script** — `scripts/harvest_proposals.py` extracts candidate decisions from session files and detects outcome signals; runs automatically or via the UI
+- **Run logging and annotation** — every injection session is recorded; outcome annotations (decision followed, correction required, etc.) are posted automatically by the harvest script
 - **Local SQLite persistence** — all data stays on your machine; no external services required
 
 Stack: Next.js 16 / React 19 / TypeScript / SQLite (`better-sqlite3`) / Tailwind CSS 4
@@ -85,9 +86,10 @@ Then open [/review](http://localhost:3000/review) and ratify it.
 | Surface | Purpose |
 |---|---|
 | **Dashboard** | Governance pulse — pending review, ratified decisions, run metrics, outcome signals |
+| **Harvest** | Extract candidate decisions from session files or pasted text; trigger auto-harvest on a timer |
 | **Review** | Ratify proposed decisions; approve, defer, reject, or supersede |
 | **Decisions** | Inspect the active decision log; generate `GOVERNED_CONTINUITY.md` for Claude Code |
-| **Runs** | Continuity run history — what was injected per session, exclusion reasons, outcome annotations |
+| **Runs** | Injection history — what was injected per session, exclusion reasons, outcome annotations |
 
 ---
 
@@ -127,55 +129,49 @@ Returns active decisions filtered to the requested context, plus memory files. L
 
 ---
 
-## Automated surfacing with the harvest script
+## Harvesting — surfacing candidate decisions
 
-`scripts/harvest_proposals.py` closes the Surface and Measure steps of the loop automatically. It extracts candidate decisions using Claude (via Instructor + Anthropic SDK, or the Claude CLI as a fallback), deduplicates against existing decisions, and stages results for your review. Nothing is submitted without an explicit flag.
+The **Harvest** page (`/harvest`) is the primary way to surface candidate decisions. It scans session files in a configured directory, extracts candidates, and submits them as proposals for review. It also runs a correction detection pass — detecting signals like decisions followed, ignored, or requiring restatement — and posts them as run annotations automatically.
 
-It also runs a **correction detection pass** — detecting signals like continuity corrections, context restatements, decisions followed or ignored, and stale leakage. When `--submit` is active, these are automatically posted as run annotations, closing the measurement loop without manual input.
+**Two modes in the UI:**
+- **Scan session files** — scans the configured session directory with a lookback window (4h / 24h / 48h / 7d). Supports auto-harvest on a timer (browser-based).
+- **Paste session text** — paste any conversation export directly. Accepts labeled turns (`User:` / `Assistant:`), a JSON messages array, or raw text. Select a source label (Cursor, OpenAI Assistants, LangGraph, etc.) for provenance.
+
+The session directory defaults to `~/.claude/projects` but is configurable — see `GOVINUITY_SESSION_DIR` in the [Configuration](#configuration) section.
+
+**CLI / automation**
+
+The harvest script can also be run directly, which is useful for cron jobs or CI pipelines:
 
 **Requirements:** Python 3.9+, `pip install pydantic anthropic instructor python-dotenv` (or just `pydantic` for CLI fallback; `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically)
 
 ```bash
-# Stage candidates from the last 48 hours (default — reads Claude Code sessions)
-python3 scripts/harvest_proposals.py
+# Submit proposals from the last 48 hours
+python3 scripts/harvest_proposals.py --submit
 
 # Preview without writing
 python3 scripts/harvest_proposals.py --dry-run
 
-# Stage + submit to /api/decisions
-python3 scripts/harvest_proposals.py --submit
+# Custom lookback
+python3 scripts/harvest_proposals.py --submit --since 7d
 
-# Process a specific Claude Code session file
-python3 scripts/harvest_proposals.py --session ~/.claude/projects/my-project/session.jsonl
+# From a file (Cursor, LangGraph, OpenAI Assistants, etc.)
+python3 scripts/harvest_proposals.py --input session.txt --source cursor --submit
+
+# From stdin
+cat session.txt | python3 scripts/harvest_proposals.py --input - --source langgraph --submit
 ```
 
-The script reads `~/.claude/projects/` by default — the standard location for Claude Code session files. It tracks a watermark per session file so incremental runs only process new turns.
-
-**Other agent tools — `--input`**
-
-The `--input` flag accepts any text file or stdin, making the extraction pipeline available for any agent system that can export session content:
-
-```bash
-# From a file (Cursor, LangGraph, etc.)
-python3 scripts/harvest_proposals.py --input session.txt --source cursor
-
-# OpenAI / Anthropic messages JSON format
-python3 scripts/harvest_proposals.py --input messages.json --source openai-assistants
-
-# Pipe from stdin
-cat session.txt | python3 scripts/harvest_proposals.py --input - --source langgraph
-```
-
-Supported input formats:
+Supported `--input` formats:
 - **Labeled turns** — lines starting with `User:`, `Human:`, `Assistant:`, `Claude:`, or `AI:`
 - **Messages JSON** — a JSON array of `{"role": "...", "content": "..."}` objects (OpenAI/Anthropic format)
 - **Raw text** — treated as a single block for extraction
 
-The `--source` label is recorded on surfaced candidates for provenance. Text inputs do not update the watermark — they are treated as one-shot.
+The `--source` label is recorded on surfaced candidates for provenance. The script tracks a watermark per session file so incremental runs only process new turns.
 
 **Cron (every 4 hours):**
 ```
-0 */4 * * * cd /path/to/govinuity && python3 scripts/harvest_proposals.py >> scripts/harvest.log 2>&1
+0 */4 * * * cd /path/to/govinuity && python3 scripts/harvest_proposals.py --submit >> scripts/harvest.log 2>&1
 ```
 
 ---
@@ -214,7 +210,7 @@ data/
 
 - **Local-first** — no remote services, no accounts, no telemetry
 - **No authentication** — intended for single-user or trusted local use
-- **Early public release** — core loop (surface → review → ratify → inject → observe) is functional; some secondary surfaces are still evolving
+- **Early public release** — core pipeline (surface → review → ratify → inject → measure) is functional; some secondary surfaces are still evolving
 - Tested on macOS; should work on Linux; Windows untested
 
 ---
