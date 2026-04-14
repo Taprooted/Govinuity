@@ -6,19 +6,22 @@ import { PATHS } from "../../../lib/config";
 const META_FILE = path.join(PATHS.metaDir, "harvest_meta.json");
 
 type HarvestMeta = {
-  last_run_ts: string;
-  last_run_hours: number;
-  last_submitted: number;
-  last_annotations: number;
-  last_duration_ms: number;
-  last_output_tail: string[];
+  running: boolean;
+  started_at?: string;
+  running_hours?: number;
+  last_run_ts?: string;
+  last_run_hours?: number;
+  last_submitted?: number;
+  last_annotations?: number;
+  last_duration_ms?: number;
+  last_output_tail?: string[];
 };
 
-function readMeta(): HarvestMeta | null {
+function readMeta(): HarvestMeta {
   try {
     return JSON.parse(fs.readFileSync(META_FILE, "utf8"));
   } catch {
-    return null;
+    return { running: false };
   }
 }
 
@@ -43,6 +46,11 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const meta = readMeta();
+  if (meta.running) {
+    return Response.json({ ok: false, error: "A harvest is already in progress." }, { status: 409 });
+  }
+
   const body = await request.json().catch(() => ({}));
   const hours: number = Math.max(1, Math.min(168, Number(body.hours) || 48));
 
@@ -50,6 +58,9 @@ export async function POST(request: Request) {
   if (!fs.existsSync(scriptPath)) {
     return Response.json({ error: "harvest_proposals.py not found in scripts/" }, { status: 500 });
   }
+
+  // Mark as running before spawning so any page reload sees it immediately
+  writeMeta({ ...meta, running: true, started_at: new Date().toISOString(), running_hours: hours });
 
   const started = Date.now();
 
@@ -66,27 +77,29 @@ export async function POST(request: Request) {
         const tail = lines.slice(-20);
 
         if (err && !stdout) {
+          writeMeta({ ...readMeta(), running: false });
           resolve(Response.json({ ok: false, error: err.message, output: tail }, { status: 500 }));
           return;
         }
 
         const { submitted, annotations } = parseOutput(combined);
 
-        const meta: HarvestMeta = {
+        writeMeta({
+          running: false,
           last_run_ts: new Date().toISOString(),
           last_run_hours: hours,
           last_submitted: submitted,
           last_annotations: annotations,
           last_duration_ms: duration_ms,
           last_output_tail: tail,
-        };
-        writeMeta(meta);
+        });
 
         resolve(Response.json({ ok: true, submitted, annotations, duration_ms, output: tail }));
       },
     );
 
     proc.on("error", (err) => {
+      writeMeta({ ...readMeta(), running: false });
       resolve(Response.json({ ok: false, error: err.message }, { status: 500 }));
     });
   });

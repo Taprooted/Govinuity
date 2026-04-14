@@ -204,12 +204,15 @@ function RunCard({
 }
 
 type HarvestMeta = {
-  last_run_ts: string;
-  last_run_hours: number;
-  last_submitted: number;
-  last_annotations: number;
-  last_duration_ms: number;
-  last_output_tail: string[];
+  running: boolean;
+  started_at?: string;
+  running_hours?: number;
+  last_run_ts?: string;
+  last_run_hours?: number;
+  last_submitted?: number;
+  last_annotations?: number;
+  last_duration_ms?: number;
+  last_output_tail?: string[];
 };
 
 const LOOKBACK_OPTIONS = [
@@ -230,9 +233,40 @@ function HarvestPanel({ onHarvested }: { onHarvested: () => void }) {
   const [autoInterval, setAutoInterval] = useState<number | null>(null);
   const [nextRunIn, setNextRunIn] = useState<string | null>(null);
 
+  async function fetchMeta() {
+    const d = await fetch("/api/harvest").then((r) => r.json());
+    const m: HarvestMeta = d.meta ?? { running: false };
+    setMeta(m);
+    return m;
+  }
+
+  // On mount: load meta and restore running state if server says so
   useEffect(() => {
-    fetch("/api/harvest").then((r) => r.json()).then((d) => setMeta(d.meta ?? null));
+    fetchMeta().then((m) => {
+      if (m.running) setRunning(true);
+    });
   }, []);
+
+  // Poll while running (covers page-navigate-away-and-back case)
+  useEffect(() => {
+    if (!running) return;
+    const poll = setInterval(async () => {
+      const m = await fetchMeta();
+      if (!m.running) {
+        setRunning(false);
+        clearInterval(poll);
+        if (m.last_output_tail) {
+          setResult({
+            submitted: m.last_submitted ?? 0,
+            annotations: m.last_annotations ?? 0,
+            output: m.last_output_tail,
+          });
+        }
+        onHarvested();
+      }
+    }, 3_000);
+    return () => clearInterval(poll);
+  }, [running]);
 
   // Auto-harvest ticker
   useEffect(() => {
@@ -267,8 +301,7 @@ function HarvestPanel({ onHarvested }: { onHarvested: () => void }) {
     setRunning(false);
     if (res.ok && data.ok) {
       setResult({ submitted: data.submitted, annotations: data.annotations, output: data.output ?? [] });
-      const newMeta = await fetch("/api/harvest").then((r) => r.json());
-      setMeta(newMeta.meta ?? null);
+      await fetchMeta();
       onHarvested();
     } else {
       setError(data.error ?? "Harvest failed");

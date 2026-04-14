@@ -124,7 +124,7 @@ function SparkBar({ data }: { data: { date: string; count: number }[] }) {
   );
 }
 
-type HarvestMeta = { last_run_ts: string; last_submitted: number; last_annotations: number };
+type HarvestMeta = { running: boolean; started_at?: string; last_run_ts?: string; last_submitted?: number; last_annotations?: number };
 
 export default function HomePage() {
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -164,8 +164,30 @@ export default function HomePage() {
 
   useEffect(() => {
     load();
-    fetch("/api/harvest").then((r) => r.json()).then((d) => setHarvestMeta(d.meta ?? null));
+    fetch("/api/harvest").then((r) => r.json()).then((d) => {
+      const m = d.meta ?? { running: false };
+      setHarvestMeta(m);
+      if (m.running) setHarvesting(true);
+    });
   }, []);
+
+  // Poll while harvesting (survives navigation)
+  useEffect(() => {
+    if (!harvesting) return;
+    const poll = setInterval(() => {
+      fetch("/api/harvest").then((r) => r.json()).then((d) => {
+        const m = d.meta ?? { running: false };
+        setHarvestMeta(m);
+        if (!m.running) {
+          setHarvesting(false);
+          setHarvestResult({ submitted: m.last_submitted ?? 0, annotations: m.last_annotations ?? 0 });
+          load(activeProject);
+          clearInterval(poll);
+        }
+      });
+    }, 3_000);
+    return () => clearInterval(poll);
+  }, [harvesting]);
 
   async function runHarvest() {
     setHarvesting(true);
@@ -220,8 +242,8 @@ export default function HomePage() {
         <span className="text-xs text-[var(--muted)]">
           {harvestResult
             ? `Done · ${harvestResult.submitted} proposals submitted · ${harvestResult.annotations} annotations posted`
-            : harvestMeta
-            ? `Last run ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted} submitted`
+            : harvestMeta?.last_run_ts
+            ? `Last run ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted ?? 0} submitted`
             : "Extract candidate decisions from Claude Code session files (last 48 h)"}
         </span>
         <Link href="/runs" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
