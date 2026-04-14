@@ -401,10 +401,11 @@ export function SidebarNav() {
   const decisionsCount = counts["decisions_total"] ?? 0;
 
   const navItems = [
-    { href: "/", label: "Dashboard", hint: "home", count: 0 },
-    { href: "/review", label: "Review", hint: "gov", count: proposalsCount, urgentCount: true },
-    { href: "/decisions", label: "Decisions", hint: "mem", count: decisionsCount },
-    { href: "/runs", label: "Runs", hint: "obs", count: counts["runs"] ?? 0 },
+    { href: "/",          label: "Dashboard", hint: "home",    count: 0 },
+    { href: "/harvest",   label: "Harvest",   hint: "surface", count: 0 },
+    { href: "/review",    label: "Review",    hint: "review",  count: proposalsCount, urgentCount: true },
+    { href: "/decisions", label: "Decisions", hint: "inject",  count: decisionsCount },
+    { href: "/runs",      label: "Runs",      hint: "measure", count: counts["runs"] ?? 0 },
   ];
 
   return (
