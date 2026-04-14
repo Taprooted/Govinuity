@@ -124,6 +124,8 @@ function SparkBar({ data }: { data: { date: string; count: number }[] }) {
   );
 }
 
+type HarvestMeta = { last_run_ts: string; last_submitted: number; last_annotations: number };
+
 export default function HomePage() {
   const [activeProject, setActiveProject] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState(0);
@@ -133,6 +135,9 @@ export default function HomePage() {
   const [annotationsByType, setAnnotationsByType] = useState<Record<string, number>>({});
   const [loading, setLoading]           = useState(true);
   const [loadError, setLoadError]       = useState<string | null>(null);
+  const [harvestMeta, setHarvestMeta]   = useState<HarvestMeta | null>(null);
+  const [harvesting, setHarvesting]     = useState(false);
+  const [harvestResult, setHarvestResult] = useState<{ submitted: number; annotations: number } | null>(null);
 
   async function load(project: string | null = null) {
     setLoadError(null);
@@ -157,7 +162,27 @@ export default function HomePage() {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/harvest").then((r) => r.json()).then((d) => setHarvestMeta(d.meta ?? null));
+  }, []);
+
+  async function runHarvest() {
+    setHarvesting(true);
+    setHarvestResult(null);
+    const res = await fetch("/api/harvest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours: 48 }),
+    });
+    const data = await res.json();
+    setHarvesting(false);
+    if (res.ok && data.ok) {
+      setHarvestResult({ submitted: data.submitted, annotations: data.annotations });
+      setHarvestMeta(await fetch("/api/harvest").then((r) => r.json()).then((d) => d.meta ?? null));
+      load(activeProject);
+    }
+  }
 
   function handleProjectSelect(p: string | null) {
     setActiveProject(p);
@@ -182,6 +207,27 @@ export default function HomePage() {
       />
 
       <ProjectBar activeProject={activeProject} onSelect={handleProjectSelect} />
+
+      {/* Harvest bar */}
+      <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5">
+        <button
+          onClick={runHarvest}
+          disabled={harvesting}
+          className="rounded bg-indigo-700 px-3 py-1 text-xs text-white hover:bg-indigo-600 disabled:opacity-40 shrink-0"
+        >
+          {harvesting ? "Harvesting…" : "Harvest sessions"}
+        </button>
+        <span className="text-xs text-[var(--muted)]">
+          {harvestResult
+            ? `Done · ${harvestResult.submitted} proposals submitted · ${harvestResult.annotations} annotations posted`
+            : harvestMeta
+            ? `Last run ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted} submitted`
+            : "Extract candidate decisions from Claude Code session files (last 48 h)"}
+        </span>
+        <Link href="/runs" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
+          Configure →
+        </Link>
+      </div>
 
       {/* Core governance metrics */}
       <div className="grid grid-cols-3 gap-3">

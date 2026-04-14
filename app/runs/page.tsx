@@ -203,7 +203,181 @@ function RunCard({
   );
 }
 
-function LogSessionPanel({ activeProject, onLogged }: { activeProject: string | null; onLogged: () => void }) {
+type HarvestMeta = {
+  last_run_ts: string;
+  last_run_hours: number;
+  last_submitted: number;
+  last_annotations: number;
+  last_duration_ms: number;
+  last_output_tail: string[];
+};
+
+const LOOKBACK_OPTIONS = [
+  { label: "4 h", hours: 4 },
+  { label: "24 h", hours: 24 },
+  { label: "48 h", hours: 48 },
+  { label: "7 d", hours: 168 },
+];
+
+function HarvestPanel({ onHarvested }: { onHarvested: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [meta, setMeta] = useState<HarvestMeta | null>(null);
+  const [hours, setHours] = useState(48);
+  const [customHours, setCustomHours] = useState("");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<{ submitted: number; annotations: number; output: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [autoInterval, setAutoInterval] = useState<number | null>(null);
+  const [nextRunIn, setNextRunIn] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/harvest").then((r) => r.json()).then((d) => setMeta(d.meta ?? null));
+  }, []);
+
+  // Auto-harvest ticker
+  useEffect(() => {
+    if (autoInterval === null) { setNextRunIn(null); return; }
+    const intervalMs = autoInterval * 60 * 60 * 1000;
+    let remaining = intervalMs;
+    const tick = setInterval(() => {
+      remaining -= 10_000;
+      if (remaining <= 0) {
+        remaining = intervalMs;
+        runHarvest();
+      }
+      const h = Math.floor(remaining / 3_600_000);
+      const m = Math.floor((remaining % 3_600_000) / 60_000);
+      setNextRunIn(`${h}h ${m}m`);
+    }, 10_000);
+    setNextRunIn(`${autoInterval}h 0m`);
+    return () => clearInterval(tick);
+  }, [autoInterval]);
+
+  async function runHarvest() {
+    setRunning(true);
+    setResult(null);
+    setError(null);
+    const effectiveHours = customHours.trim() ? parseInt(customHours, 10) : hours;
+    const res = await fetch("/api/harvest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ hours: effectiveHours }),
+    });
+    const data = await res.json();
+    setRunning(false);
+    if (res.ok && data.ok) {
+      setResult({ submitted: data.submitted, annotations: data.annotations, output: data.output ?? [] });
+      const newMeta = await fetch("/api/harvest").then((r) => r.json());
+      setMeta(newMeta.meta ?? null);
+      onHarvested();
+    } else {
+      setError(data.error ?? "Harvest failed");
+    }
+  }
+
+  const effectiveHours = customHours.trim() ? parseInt(customHours, 10) : hours;
+
+  return (
+    <div className="rounded-lg border border-indigo-800/40 bg-[var(--surface)]">
+      <button
+        onClick={() => { setOpen((v) => !v); setResult(null); setError(null); }}
+        className="w-full text-left px-4 py-3 flex items-center gap-2"
+      >
+        <span className="text-sm font-medium">Harvest sessions</span>
+        <span className="text-xs text-[var(--muted)]">— extract candidate decisions from Claude Code session files</span>
+        {meta && (
+          <span className="text-xs text-[var(--muted)]">
+            · last run {timeAgo(meta.last_run_ts)} · {meta.last_submitted} submitted
+          </span>
+        )}
+        {autoInterval && nextRunIn && (
+          <span className="text-xs text-indigo-400 ml-1">· auto in {nextRunIn}</span>
+        )}
+        <span className="ml-auto text-xs text-[var(--muted)]">{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-[var(--border)] px-4 py-3 space-y-3">
+          <p className="text-xs text-[var(--muted)] leading-relaxed">
+            Reads your Claude Code session files, extracts candidate decisions using Claude, and submits them as proposals for review.
+            Also posts run annotations (corrections, decisions followed/ignored) automatically.
+          </p>
+
+          {/* Lookback selector */}
+          <div className="space-y-1">
+            <p className="text-xs text-[var(--muted)]">Lookback window</p>
+            <div className="flex gap-1.5 flex-wrap">
+              {LOOKBACK_OPTIONS.map((opt) => (
+                <button
+                  key={opt.hours}
+                  onClick={() => { setHours(opt.hours); setCustomHours(""); }}
+                  className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+                    hours === opt.hours && !customHours.trim()
+                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                      : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <input
+                type="number"
+                value={customHours}
+                onChange={(e) => setCustomHours(e.target.value)}
+                placeholder="custom h"
+                className="w-20 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700"
+              />
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={runHarvest}
+              disabled={running}
+              className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+            >
+              {running ? "Harvesting…" : `Harvest last ${effectiveHours}h`}
+            </button>
+
+            {/* Auto-harvest toggle */}
+            <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+              <span>Auto every</span>
+              {([4, 8, 24] as const).map((h) => (
+                <button
+                  key={h}
+                  onClick={() => setAutoInterval(autoInterval === h ? null : h)}
+                  className={`rounded border px-2 py-0.5 transition-colors ${
+                    autoInterval === h
+                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                      : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                  }`}
+                >
+                  {h}h
+                </button>
+              ))}
+              {autoInterval && <span className="text-indigo-400">· active (tab must stay open)</span>}
+            </div>
+          </div>
+
+          {/* Output */}
+          {result && (
+            <div className="space-y-1">
+              <p className="text-xs text-green-400">
+                Done · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} submitted · {result.annotations} annotation{result.annotations !== 1 ? "s" : ""} posted
+              </p>
+              {result.output.length > 0 && (
+                <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-2 text-xs text-[var(--muted)] leading-relaxed overflow-x-auto max-h-40">{result.output.join("\n")}</pre>
+              )}
+            </div>
+          )}
+          {error && <p className="text-xs text-red-400">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RecordSessionPanel({ activeProject, onLogged }: { activeProject: string | null; onLogged: () => void }) {
   const [open, setOpen] = useState(false);
   const [source, setSource] = useState<"file" | "manual">("file");
   const [note, setNote] = useState("");
@@ -237,16 +411,17 @@ function LogSessionPanel({ activeProject, onLogged }: { activeProject: string | 
         onClick={() => { setOpen((v) => !v); setResult(null); setError(null); }}
         className="w-full text-left px-4 py-3 flex items-center gap-2"
       >
-        <span className="text-sm font-medium">Log a session</span>
-        <span className="text-xs text-[var(--muted)]">— record a past session so you can annotate it</span>
+        <span className="text-sm font-medium">Record a past session</span>
+        <span className="text-xs text-[var(--muted)]">— add a run record for a session that wasn't captured automatically</span>
         <span className="ml-auto text-xs text-[var(--muted)]">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
         <div className="border-t border-[var(--border)] px-4 py-3 space-y-3">
           <p className="text-xs text-[var(--muted)]">
-            Creates a run record using the currently active decisions
-            {activeProject ? ` for project "${activeProject}"` : ""}.
-            Use this when you completed a session with GOVERNED_CONTINUITY.md active but no run was logged automatically.
+            Creates a run record using the currently active decisions{activeProject ? ` for project "${activeProject}"` : ""}.
+            Use this when you completed a session with <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVERNED_CONTINUITY.md</code> active
+            but the run wasn't captured automatically — for example, before run-logging was set up.
+            This does not extract decisions; it only records what was active at the time.
           </p>
           <div className="flex gap-3 text-xs">
             {(["file", "manual"] as const).map((s) => (
@@ -340,7 +515,9 @@ export default function RunsPage() {
 
       <ProjectBar activeProject={activeProject} onSelect={setActiveProject} />
 
-      <LogSessionPanel activeProject={activeProject} onLogged={load} />
+      <HarvestPanel onHarvested={load} />
+
+      <RecordSessionPanel activeProject={activeProject} onLogged={load} />
 
       {/* Stats strip */}
       {stats && stats.total_runs > 0 && (
