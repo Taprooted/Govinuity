@@ -58,7 +58,15 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
       proc.stdin.end();
     }
 
-    proc.on("close", () => resolve({ stdout, stderr }));
+    proc.on("close", (code) => {
+      if (code && code !== 0) {
+        const combined = (stdout + "\n" + stderr).trim();
+        const tail = combined.split("\n").filter(Boolean).slice(-12).join("\n");
+        reject(new Error(tail || `Harvest script exited with code ${code}`));
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
     proc.on("error", reject);
   });
 }

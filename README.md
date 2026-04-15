@@ -145,7 +145,9 @@ The session directory defaults to `~/.claude/projects` but is configurable — s
 
 The harvest script can also be run directly, which is useful for cron jobs or CI pipelines:
 
-**Requirements:** Python 3.9+, `pip install pydantic anthropic instructor python-dotenv` (or just `pydantic` for CLI fallback; `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically)
+`scripts/harvest_proposals.py` uses Instructor + Anthropic SDK when available, or the Claude CLI as a fallback. It deduplicates against existing decisions and stages results for human review. Nothing is submitted without an explicit `--submit` flag.
+
+**Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. Without Anthropic/Instructor, the script can fall back to the Claude CLI if installed and authenticated separately; `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
 
 ```bash
 # Submit proposals from the last 48 hours

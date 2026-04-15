@@ -147,7 +147,7 @@ export default function HarvestPage() {
       />
 
       {/* Main harvest card */}
-      <div className="rounded-lg border border-indigo-800/40 bg-[var(--surface)] px-5 py-4 space-y-4">
+      <div className="rounded-lg border border-[var(--brand-gold)] bg-[var(--surface)] px-5 py-4 space-y-4">
 
         {/* Mode tabs */}
         <div className="flex items-center gap-1">
@@ -160,7 +160,7 @@ export default function HarvestPage() {
               onClick={() => { setMode(m.id); setResult(null); setError(null); }}
               className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
                 mode === m.id
-                  ? "bg-indigo-900/60 text-indigo-200"
+                  ? "bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]"
                   : "text-[var(--muted)] hover:text-[var(--foreground)]"
               }`}
             >
@@ -172,7 +172,7 @@ export default function HarvestPage() {
               Last run {timeAgo(meta.last_run_ts)} · {meta.last_submitted ?? 0} submitted · {meta.last_annotations ?? 0} annotations
             </span>
           )}
-          {running && <span className="ml-auto text-xs text-indigo-400 animate-pulse">Harvesting…</span>}
+          {running && <span className="ml-auto text-xs text-[var(--brand-gold)] animate-pulse">Harvesting…</span>}
         </div>
 
         {/* Sessions mode */}
@@ -200,7 +200,7 @@ export default function HarvestPage() {
                     value={sessionDir}
                     onChange={(e) => setSessionDir(e.target.value)}
                     placeholder={configuredSessionDir ?? "~/.claude/projects"}
-                    className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono focus:outline-none focus:ring-1 focus:ring-indigo-700"
+                    className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono focus:border-[var(--brand-gold)] focus:outline-none"
                   />
                   <p className="text-xs text-[var(--muted)]">
                     Override for this run only, or set <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVINUITY_SESSION_DIR</code> in <code className="font-mono bg-[var(--panel-2)] px-1 rounded">.env.local</code> to change the default permanently.
@@ -216,7 +216,7 @@ export default function HarvestPage() {
                   onClick={() => { setHours(opt.hours); setCustomHours(""); }}
                   className={`rounded border px-2.5 py-1 text-xs transition-colors ${
                     hours === opt.hours && !customHours.trim()
-                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                      ? "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]"
                       : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
                   }`}
                 >
@@ -228,12 +228,12 @@ export default function HarvestPage() {
                 value={customHours}
                 onChange={(e) => setCustomHours(e.target.value)}
                 placeholder="custom h"
-                className="w-20 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700"
+                className="w-20 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--brand-gold)] focus:outline-none"
               />
               <button
                 onClick={runHarvest}
                 disabled={!canSubmit}
-                className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+                className="rounded bg-[var(--brand-green)] px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40"
               >
                 {running ? "Harvesting…" : `Harvest last ${effectiveHours}h`}
               </button>
@@ -246,7 +246,7 @@ export default function HarvestPage() {
                   onClick={() => setAutoInterval(autoInterval === h ? null : h)}
                   className={`rounded border px-2 py-0.5 transition-colors ${
                     autoInterval === h
-                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                      ? "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]"
                       : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
                   }`}
                 >
@@ -254,7 +254,7 @@ export default function HarvestPage() {
                 </button>
               ))}
               {autoInterval && nextRunIn
-                ? <span className="text-indigo-400">· next in {nextRunIn} (tab must stay open)</span>
+                ? <span className="text-[var(--brand-gold)]">· next in {nextRunIn} (tab must stay open)</span>
                 : <span>— tab must stay open</span>
               }
             </div>
@@ -276,7 +276,7 @@ export default function HarvestPage() {
                   onClick={() => setSourceLabel(s.value)}
                   className={`rounded border px-2.5 py-1 text-xs transition-colors ${
                     sourceLabel === s.value
-                      ? "border-indigo-600 bg-indigo-950/40 text-indigo-300"
+                      ? "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]"
                       : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
                   }`}
                 >
@@ -289,7 +289,7 @@ export default function HarvestPage() {
                   value={customSource}
                   onChange={(e) => setCustomSource(e.target.value)}
                   placeholder="source name"
-                  className="w-28 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700"
+                  className="w-28 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] focus:border-[var(--brand-gold)] focus:outline-none"
                 />
               )}
             </div>
@@ -298,12 +298,12 @@ export default function HarvestPage() {
               onChange={(e) => setPastedText(e.target.value)}
               rows={10}
               placeholder={"User: Let's use Postgres for this.\nAssistant: Agreed — I'll set up the schema.\n\nUser: Keep migrations reviewed before running in prod.\n..."}
-              className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-700 resize-y"
+              className="w-full rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono leading-relaxed focus:border-[var(--brand-gold)] focus:outline-none resize-y"
             />
             <button
               onClick={runHarvest}
               disabled={!canSubmit}
-              className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
+              className="rounded bg-[var(--brand-green)] px-3 py-1.5 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40"
             >
               {running ? "Extracting…" : "Extract proposals"}
             </button>
@@ -313,9 +313,9 @@ export default function HarvestPage() {
         {/* Result / error */}
         {result && (
           <div className="space-y-1.5 pt-3 border-t border-[var(--border)]">
-            <p className="text-xs text-green-400">
+            <p className="text-xs text-[var(--brand-green)]">
               Done · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} submitted to{" "}
-              <Link href="/review" className="underline hover:text-green-300">Review</Link>
+              <Link href="/review" className="underline hover:opacity-80">Review</Link>
               {" "}· {result.annotations} annotation{result.annotations !== 1 ? "s" : ""} posted
             </p>
             {result.output.length > 0 && (
@@ -323,7 +323,7 @@ export default function HarvestPage() {
             )}
           </div>
         )}
-        {error && <p className="text-xs text-red-400 pt-2 border-t border-[var(--border)]">{error}</p>}
+        {error && <p className="text-xs text-[var(--brand-coral)] pt-2 border-t border-[var(--border)]">{error}</p>}
       </div>
 
       {/* CLI reference */}

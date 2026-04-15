@@ -65,6 +65,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import time
@@ -92,10 +93,11 @@ FULL_HISTORY  = "--full-history" in sys.argv
 
 GOVINUITY_URL       = os.environ.get("GOVINUITY_URL", "http://localhost:3000")
 CLAUDE_BIN          = os.environ.get("CLAUDE_BIN", str(Path.home() / ".local" / "bin" / "claude"))
-CLAUDE_PROJECTS_DIR = Path(os.environ.get("GOVINUITY_SESSION_DIR", str(Path.home() / ".claude" / "projects")))
+CLAUDE_PROJECTS_DIR = Path(os.environ.get("GOVINUITY_SESSION_DIR", Path.home() / ".claude" / "projects")).expanduser()
 WATERMARK_FILE      = Path.home() / ".claude" / "proposal_harvest_watermark.json"
-META_DIR            = Path(os.environ.get("GOVINUITY_META_DIR", Path.home() / ".govinuity" / "data"))
+META_DIR            = Path(os.environ.get("GOVINUITY_META_DIR", _REPO_DIR / "data"))
 DECISIONS_PATH      = META_DIR / "decisions.jsonl"
+DB_PATH             = META_DIR / "govinuity.db"
 ANTHROPIC_API_KEY   = os.environ.get("ANTHROPIC_API_KEY", "")
 
 STAGE_FILE = _REPO_DIR / "scripts" / ".harvest_staged.json"
@@ -293,6 +295,20 @@ def jaccard(a: str, b: str) -> float:
 
 def load_existing_titles() -> list[str]:
     """Return titles of existing decisions (any status) for dedup."""
+    if DB_PATH.exists():
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute("SELECT title, body FROM decisions").fetchall()
+            conn.close()
+            titles = []
+            for title, body in rows:
+                t = title or (body or "")[:80]
+                if t:
+                    titles.append(t)
+            return titles
+        except Exception as e:
+            log(f"  Warning: could not read SQLite decisions for dedup: {e}")
+
     if not DECISIONS_PATH.exists():
         return []
     titles = []
@@ -801,7 +817,9 @@ def submit_candidates(candidates: list[dict]) -> int:
             "possible_conflicts": c.get("possible_conflicts", []),
             "scope":             c.get("scope", "global"),
             "tags":              c.get("tags", []),
-            "source":            "harvest",
+            "source_type":        "harvest",
+            "source_agent":       c.get("source_agent") or c.get("source") or "harvest",
+            "source":             c.get("source_agent") or c.get("source") or "harvest",
         }
         if not entry["body"]:
             continue
@@ -920,6 +938,8 @@ def harvest_text_input(text: str, source_label: str) -> tuple:
         all_raw.extend(raw)
 
     consolidated = consolidate_candidates(all_raw) if all_raw else []
+    for candidate in consolidated:
+        candidate["source_agent"] = source_label
 
     log("  Detecting correction signals…")
     signals = detect_corrections(turns)

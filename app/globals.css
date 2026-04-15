@@ -8,8 +8,14 @@
   --sidebar: #0a0d14;
   --border: #262c38;
   --muted: #7b8798;
-  --accent: #818cf8;
-  --accent-soft: #a5b4fc;
+  --accent: #d7a93f;
+  --accent-soft: #e3bf62;
+  --brand-coral: #c84f3d;
+  --brand-gold: #d7a93f;
+  --brand-green: #2f6f4e;
+  --brand-coral-soft: rgba(200, 79, 61, 0.14);
+  --brand-gold-soft: rgba(215, 169, 63, 0.14);
+  --brand-green-soft: rgba(47, 111, 78, 0.16);
 }
 
 @theme inline {
@@ -33,5 +39,5 @@ a {
 }
 
 ::selection {
-  background: rgba(129, 140, 248, 0.25);
+  background: rgba(215, 169, 63, 0.25);
 }

@@ -44,7 +44,7 @@ export type DecisionV2 = {
   body: string;
   rationale: string;
   // Provenance
-  source_type: "review" | "direct" | "agent" | "import";
+  source_type: "review" | "direct" | "agent" | "import" | "harvest" | "manual";
   source_id: string | null;
   source_agent: string | null;
   source_loop: string | null;

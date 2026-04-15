@@ -10,6 +10,7 @@ import type { DecisionScope, TransferTier } from "../../../lib/utils";
 const VALID_SCOPES = new Set<DecisionScope>(["global","project","app","task","session","agent"]);
 const VALID_TIERS = new Set<TransferTier>(["always","by_project","explicit","history_only","re_ratify"]);
 const VALID_WRITE_STATUSES = new Set(["proposed","under_review","approved","rejected","deferred"]);
+const VALID_SOURCE_TYPES = new Set(["review", "direct", "agent", "import", "harvest", "manual"]);
 
 function validateIsoDate(value: unknown, field: string): string | null {
   if (value == null) return null; // optional field — absence is fine
@@ -134,6 +135,8 @@ export async function POST(request: Request) {
   const now = new Date().toISOString();
   const titleRaw = (body.title?.trim() || bodyText.split("\n")[0]).trim();
   const title = titleRaw.length > 120 ? titleRaw.slice(0, 120) + "…" : titleRaw;
+  const requestedSourceType = body.source_type ?? (source === "harvest" ? "harvest" : "direct");
+  const sourceType = VALID_SOURCE_TYPES.has(requestedSourceType) ? requestedSourceType : "direct";
 
   const entry: Record<string, unknown> = {
     id: `dec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -141,9 +144,9 @@ export async function POST(request: Request) {
     title,
     body: bodyText,
     rationale: body.rationale ?? "",
-    source_type: "direct",
-    source_id: null,
-    source_agent: source ?? null,
+    source_type: sourceType,
+    source_id: body.source_id ?? null,
+    source_agent: body.source_agent ?? source ?? null,
     source_loop: null,
     ratified_by: normalizedStatus === "approved" ? (ratified_by?.trim() ?? null) : null,
     created_at: now,
@@ -161,7 +164,7 @@ export async function POST(request: Request) {
     assumptions: body.assumptions ?? [],
     revisit_trigger: body.revisit_trigger ?? null,
     reuse_instructions: body.reuse_instructions ?? null,
-    provenance: { linkType: "direct", derivedFrom: [] },
+    provenance: body.provenance ?? { linkType: sourceType, derivedFrom: [] },
     tags: body.tags ?? [],
     context_keys: body.context_keys ?? (project ? [`project:${project}`] : []),
     note: note?.trim() ?? null,

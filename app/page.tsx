@@ -65,8 +65,8 @@ function OutcomeStrip({ byType }: { byType: Record<string, number> }) {
             { key: "stale_leakage_detected", label: "Stale leakage" },
           ].map(({ key, label }) => (
             <div key={key} className="flex items-center justify-between text-xs">
-              <span className={`text-[var(--muted)] ${byType[key] ? "text-amber-400" : ""}`}>{label}</span>
-              <span className={`font-semibold tabular-nums ${byType[key] ? (key === "stale_leakage_detected" ? "text-red-400" : "text-amber-400") : "text-[var(--muted)]"}`}>
+              <span className={`text-[var(--muted)] ${byType[key] ? "text-[var(--brand-gold)]" : ""}`}>{label}</span>
+              <span className={`font-semibold tabular-nums ${byType[key] ? (key === "stale_leakage_detected" ? "text-[var(--brand-coral)]" : "text-[var(--brand-gold)]") : "text-[var(--muted)]"}`}>
                 {byType[key] ?? 0}
               </span>
             </div>
@@ -77,17 +77,17 @@ function OutcomeStrip({ byType }: { byType: Record<string, number> }) {
         <div className="space-y-1.5">
           <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Decision adherence</p>
           <div className="flex items-center justify-between text-xs">
-            <span className={followed > 0 ? "text-green-400" : "text-[var(--muted)]"}>Followed</span>
-            <span className={`font-semibold tabular-nums ${followed > 0 ? "text-green-400" : "text-[var(--muted)]"}`}>{followed}</span>
+            <span className={followed > 0 ? "text-[var(--brand-green)]" : "text-[var(--muted)]"}>Followed</span>
+            <span className={`font-semibold tabular-nums ${followed > 0 ? "text-[var(--brand-green)]" : "text-[var(--muted)]"}`}>{followed}</span>
           </div>
           <div className="flex items-center justify-between text-xs">
-            <span className={notFollowed > 0 ? "text-red-400" : "text-[var(--muted)]"}>Not followed</span>
-            <span className={`font-semibold tabular-nums ${notFollowed > 0 ? "text-red-400" : "text-[var(--muted)]"}`}>{notFollowed}</span>
+            <span className={notFollowed > 0 ? "text-[var(--brand-coral)]" : "text-[var(--muted)]"}>Not followed</span>
+            <span className={`font-semibold tabular-nums ${notFollowed > 0 ? "text-[var(--brand-coral)]" : "text-[var(--muted)]"}`}>{notFollowed}</span>
           </div>
           {successRate !== null && (
             <div className="pt-1 border-t border-[var(--border)] flex items-center justify-between text-xs">
               <span className="text-[var(--muted)]">Adherence rate</span>
-              <span className={`font-semibold tabular-nums ${successRate >= 75 ? "text-green-400" : successRate >= 50 ? "text-amber-400" : "text-red-400"}`}>
+              <span className={`font-semibold tabular-nums ${successRate >= 75 ? "text-[var(--brand-green)]" : successRate >= 50 ? "text-[var(--brand-gold)]" : "text-[var(--brand-coral)]"}`}>
                 {successRate}%
               </span>
             </div>
@@ -98,7 +98,7 @@ function OutcomeStrip({ byType }: { byType: Record<string, number> }) {
       {/* Total failures bar */}
       {failures > 0 && (
         <div className="pt-2 border-t border-[var(--border)] flex items-center gap-2 text-xs text-[var(--muted)]">
-          <span className="text-amber-400 font-semibold">{failures}</span>
+          <span className="text-[var(--brand-gold)] font-semibold">{failures}</span>
           <span>failure signal{failures !== 1 ? "s" : ""} in total —</span>
           <Link href="/runs" className="text-[var(--accent)] hover:underline">annotate runs</Link>
           <span>to refine</span>
@@ -115,7 +115,7 @@ function SparkBar({ data }: { data: { date: string; count: number }[] }) {
       {data.map((d) => (
         <div
           key={d.date}
-          className="flex-1 rounded-sm bg-indigo-700/60 hover:bg-indigo-500/80 transition-colors"
+          className="flex-1 rounded-sm bg-[var(--brand-gold)] opacity-65 transition-opacity hover:opacity-90"
           style={{ height: `${Math.max((d.count / max) * 100, d.count > 0 ? 8 : 2)}%` }}
           title={`${d.date}: ${d.count} run${d.count !== 1 ? "s" : ""}`}
         />
@@ -225,7 +225,7 @@ export default function HomePage() {
   }
 
   if (loading) return <div className="text-[var(--muted)] text-sm">Loading…</div>;
-  if (loadError) return <div className="p-8 text-sm text-red-400">Could not load dashboard: {loadError}</div>;
+  if (loadError) return <div className="p-8 text-sm text-[var(--brand-coral)]">Could not load dashboard: {loadError}</div>;
 
   const injRate = metrics?.averages.injected_per_run;
   const eligRate = metrics?.averages.eligible_per_run;
@@ -248,7 +248,7 @@ export default function HomePage() {
         <button
           onClick={runHarvest}
           disabled={harvesting}
-          className="rounded bg-indigo-700 px-3 py-1 text-xs text-white hover:bg-indigo-600 disabled:opacity-40 shrink-0"
+          className="rounded bg-[var(--brand-green)] px-3 py-1 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40 shrink-0"
         >
           {harvesting ? "Harvesting…" : "Harvest sessions"}
         </button>
@@ -259,7 +259,7 @@ export default function HomePage() {
             ? `Last run ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted ?? 0} submitted`
             : "Extract candidate decisions from Claude Code session files (last 48 h)"}
         </span>
-        <Link href="/runs" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
+        <Link href="/harvest" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
           Configure →
         </Link>
       </div>
@@ -320,7 +320,7 @@ export default function HomePage() {
                     <span className="text-[var(--foreground)] truncate">
                       {d.title ?? d.decision_id}
                     </span>
-                    <span className="shrink-0 font-mono text-indigo-400">{d.injection_count}×</span>
+                    <span className="shrink-0 font-mono text-[var(--brand-gold)]">{d.injection_count}×</span>
                   </div>
                 ))}
               </div>
@@ -394,7 +394,7 @@ export default function HomePage() {
               Load a small set of example proposals and ratified decisions to see how the review queue and decision log work before connecting real session data.
             </p>
             {seedDone ? (
-              <p className="text-xs text-green-400">Example data loaded — check <Link href="/review" className="underline hover:text-green-300">Review</Link> and <Link href="/decisions" className="underline hover:text-green-300">Decisions</Link>.</p>
+              <p className="text-xs text-[var(--brand-green)]">Example data loaded — check <Link href="/review" className="underline hover:opacity-80">Review</Link> and <Link href="/decisions" className="underline hover:opacity-80">Decisions</Link>.</p>
             ) : (
               <button
                 onClick={seedData}

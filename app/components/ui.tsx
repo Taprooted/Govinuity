@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -20,6 +21,7 @@ export function PageHeader({
   return (
     <div className="mb-6 flex items-start justify-between gap-4 border-b border-[var(--border)] pb-4">
       <div>
+        <div className="mb-2 h-1 w-12 rounded-full bg-[var(--brand-gold)]" />
         <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
         {description && <p className="mt-2 max-w-3xl text-sm leading-relaxed text-[var(--muted)]">{description}</p>}
       </div>
@@ -37,12 +39,12 @@ export function StatusBadge({
 }) {
   const tones: Record<string, string> = {
     neutral: "border-[var(--border)] bg-[var(--panel-2)] text-[var(--muted)]",
-    info: "border-blue-900 bg-blue-950 text-blue-300",
-    success: "border-green-900 bg-green-950 text-green-300",
-    warning: "border-yellow-900 bg-yellow-950 text-yellow-300",
-    danger: "border-red-900 bg-red-950 text-red-300",
-    accent: "border-indigo-900 bg-indigo-950 text-indigo-300",
-    reflection: "border-purple-900 bg-purple-950 text-purple-300",
+    info: "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]",
+    success: "border-[var(--brand-green)] bg-[var(--brand-green-soft)] text-[var(--brand-green)]",
+    warning: "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]",
+    danger: "border-[var(--brand-coral)] bg-[var(--brand-coral-soft)] text-[var(--brand-coral)]",
+    accent: "border-[var(--brand-coral)] bg-[var(--brand-coral-soft)] text-[var(--brand-coral)]",
+    reflection: "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]",
   };
 
   return <span className={cx("inline-flex rounded border px-1.5 py-0.5 font-mono text-xs", tones[tone])}>{text}</span>;
@@ -59,12 +61,19 @@ export function MetricTile({
 }) {
   const map = {
     neutral: "border-[var(--border)]",
-    accent: "border-indigo-900",
-    warning: "border-yellow-900",
-    success: "border-green-900",
+    accent: "border-[var(--brand-coral)]",
+    warning: "border-[var(--brand-gold)]",
+    success: "border-[var(--brand-green)]",
+  };
+  const bars = {
+    neutral: "bg-[var(--border)]",
+    accent: "bg-[var(--brand-coral)]",
+    warning: "bg-[var(--brand-gold)]",
+    success: "bg-[var(--brand-green)]",
   };
   return (
     <div className={cx("rounded-lg border bg-[var(--surface)] p-3", map[tone])}>
+      <div className={cx("mb-3 h-1 w-8 rounded-full", bars[tone])} />
       <p className="text-xs text-[var(--muted)]">{label}</p>
       <p className="mt-1 text-lg font-semibold">{value}</p>
     </div>
@@ -84,9 +93,9 @@ export function SectionCard({
 }) {
   const toneClass =
     tone === "action"
-      ? "border-yellow-900/80"
+      ? "border-[var(--brand-gold)]"
       : tone === "artifact"
-        ? "border-indigo-950/70"
+        ? "border-[var(--brand-green)]"
         : "border-[var(--border)]";
 
   return (
@@ -108,12 +117,12 @@ export function StackedBar({
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
   const tones: Record<string, string> = {
     neutral: "bg-[var(--border)]",
-    info: "bg-blue-500/70",
-    success: "bg-green-500/70",
-    warning: "bg-yellow-500/70",
-    danger: "bg-red-500/70",
-    accent: "bg-indigo-500/70",
-    reflection: "bg-purple-500/70",
+    info: "bg-[var(--brand-gold)]",
+    success: "bg-[var(--brand-green)]",
+    warning: "bg-[var(--brand-gold)]",
+    danger: "bg-[var(--brand-coral)]",
+    accent: "bg-[var(--brand-coral)]",
+    reflection: "bg-[var(--brand-gold)]",
   };
 
   return (
@@ -196,7 +205,7 @@ export function ProjectBar({
         className={cx(
           "rounded-full border px-3 py-1 text-xs transition-colors",
           activeProject === null
-            ? "border-indigo-700 bg-[var(--surface)] text-[var(--foreground)]"
+            ? "border-[var(--brand-gold)] bg-[var(--surface)] text-[var(--foreground)]"
             : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]",
         )}
       >
@@ -212,7 +221,7 @@ export function ProjectBar({
             className={cx(
               "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
               isActive
-                ? "border-indigo-700 bg-[var(--surface)] text-[var(--foreground)]"
+                ? "border-[var(--brand-gold)] bg-[var(--surface)] text-[var(--foreground)]"
                 : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]",
             )}
           >
@@ -374,7 +383,7 @@ export function QuickLog({ projects }: { projects: ProjectSummary[] }) {
               <button
                 type="submit"
                 disabled={saving || !body.trim() || !context.trim()}
-                className="w-full rounded border border-[var(--accent)] py-1.5 text-sm text-[var(--accent)] transition-colors hover:bg-indigo-950 disabled:opacity-40"
+                className="w-full rounded border border-[var(--accent)] py-1.5 text-sm text-[var(--accent)] transition-colors hover:bg-[var(--brand-gold-soft)] disabled:opacity-40"
               >
                 {flash ?? (saving ? "…" : "Save")}
               </button>
@@ -412,9 +421,15 @@ export function SidebarNav() {
     <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--sidebar)]">
       <div className="border-b border-[var(--border)] px-5 py-6">
         <div className="mb-3 flex items-center gap-2.5">
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-indigo-900/60">
-            <span className="text-[10px] font-bold text-indigo-300">G</span>
-          </div>
+          <Image
+            src="/brand/mark.svg"
+            alt=""
+            aria-hidden="true"
+            width={28}
+            height={28}
+            className="shrink-0 rounded"
+            priority
+          />
           <p className="text-sm font-semibold tracking-wide text-[var(--foreground)]">Govinuity</p>
         </div>
         <p className="text-xs leading-relaxed text-[var(--muted)]">Governed continuity for human-agent work.</p>
@@ -431,7 +446,7 @@ export function SidebarNav() {
                 className={cx(
                   "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 transition-colors",
                   active
-                    ? "border-indigo-900 bg-[var(--surface)] text-[var(--foreground)]"
+                    ? "border-[var(--brand-gold)] bg-[var(--surface)] text-[var(--foreground)]"
                     : "border-transparent text-[var(--muted)] hover:border-[var(--border)] hover:bg-[var(--panel-2)] hover:text-[var(--foreground)]",
                 )}
               >
