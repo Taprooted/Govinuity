@@ -1,0 +1,6 @@
+Next-session handoff:
+
+- Keep public documentation focused on shipped behavior and stable concepts. Roadmap planning and unresolved internal direction should stay out of public docs until it is ready to publish.
+- Treat paste or upload as the universal Harvest path across agent tools. Local session scanning is useful when readable session files exist, but it should not make the product feel tied to one agent platform.
+- Do not expose local filesystem paths in public screenshots, copied output, or default UI. Resolved paths can appear only behind explicit technical details for debugging.
+- When a failed approach produces a durable lesson, surface it as a candidate for review instead of relying on the next session to infer it from context.

@@ -50,6 +50,7 @@ Usage:
 
     # Any agent tool — pass a text file or pipe stdin:
     python3 scripts/harvest_proposals.py --input session.txt --source cursor
+    python3 scripts/harvest_proposals.py --input handoff.md --source codex --artifact-type handoff_summary
     python3 scripts/harvest_proposals.py --input messages.json --source openai-assistants
     cat session.txt | python3 scripts/harvest_proposals.py --input - --source langgraph
 
@@ -262,8 +263,50 @@ def explicit_source() -> str:
     """Return --source label, default 'text'."""
     for i, arg in enumerate(sys.argv):
         if arg == "--source" and i + 1 < len(sys.argv):
-            return sys.argv[i + 1]
+            return sys.argv[i + 1].strip() or "text"
     return "text"
+
+
+ARTIFACT_GUIDANCE = {
+    "transcript": (
+        "This input is a normal conversation transcript or exported chat. "
+        "Be conservative: extract only settled decisions, durable constraints, or repeated operating rules."
+    ),
+    "handoff_summary": (
+        "This input is a handoff or compact summary for continuing work in a later session. "
+        "It is likely already compressed around what mattered. Prefer constraints, settled decisions, "
+        "ruled-out approaches, durable project facts, and next-session rules. Do not treat every next step as durable."
+    ),
+    "correction_or_lesson": (
+        "This input contains a correction, failed approach, or lesson learned. Treat explicit 'do not repeat', "
+        "'we decided', 'that failed', and 'next time' language as high-salience evidence. Avoid overgeneralizing "
+        "one incident into a global rule unless the text clearly frames it as durable."
+    ),
+    "subagent_report": (
+        "This input is a synthesized subagent result. Extract durable conclusions, constraints, discovered facts, "
+        "and recommended patterns. Do not preserve raw exploration or intermediate tool output as continuity."
+    ),
+    "working_notes": (
+        "This input is mixed working notes or scratch material. Be very conservative and only surface explicit "
+        "durable signals, settled constraints, or decisions that clearly need to govern future sessions."
+    ),
+}
+
+
+def explicit_artifact_type() -> str:
+    """Return --artifact-type label, default 'transcript'."""
+    for i, arg in enumerate(sys.argv):
+        if arg == "--artifact-type" and i + 1 < len(sys.argv):
+            value = sys.argv[i + 1].strip().replace("-", "_")
+            if value in ARTIFACT_GUIDANCE:
+                return value
+            log(f"  Warning: unknown artifact type '{value}', using transcript")
+            return "transcript"
+    return "transcript"
+
+
+def artifact_guidance(artifact_type: str) -> str:
+    return ARTIFACT_GUIDANCE.get(artifact_type, ARTIFACT_GUIDANCE["transcript"])
 
 
 def parse_max_files_arg() -> int:
@@ -419,7 +462,10 @@ def chunk_turns(turns: list[dict]) -> list[list[dict]]:
 
 EXTRACT_PROMPT = """You are a continuity-extraction assistant for a governed decision memory system.
 
-Read this conversation excerpt (chunk {idx}/{total}, source_trust={trust}).
+Read this conversation excerpt (chunk {idx}/{total}, source_trust={trust}, artifact_type={artifact_type}).
+
+Artifact guidance:
+{artifact_guidance}
 
 Extract decisions or rules that are DURABLE CONTINUITY OBJECTS — things that should govern future work across sessions, not just the current task.
 
@@ -467,7 +513,7 @@ If nothing qualifies, return an empty candidates list.
 
 @observe(name="extract-chunk-instructor", as_type="generation", capture_input=False)
 def extract_chunk_candidates_instructor(
-    chunk: list[dict], idx: int, total: int
+    chunk: list[dict], idx: int, total: int, artifact_type: str = "transcript"
 ) -> list[dict]:
     """Structured extraction using Instructor + Anthropic SDK."""
     global EXTRACTION_ATTEMPTS, EXTRACTION_FAILURES
@@ -478,14 +524,21 @@ def extract_chunk_candidates_instructor(
     except Exception as e:
         EXTRACTION_ATTEMPTS -= 1
         log(f"    Chunk {idx}: Instructor unavailable — falling back to Claude CLI ({e})")
-        return extract_chunk_candidates_subprocess(chunk, idx, total)
+        return extract_chunk_candidates_subprocess(chunk, idx, total, artifact_type)
 
     trust = classify_source_trust(chunk)
     turns_text = "\n\n".join(
         f"[{t['ts'][:16]}] {'User' if t['role']=='user' else 'Claude'}: {t['text']}"
         for t in chunk
     )
-    prompt = EXTRACT_PROMPT.format(idx=idx, total=total, trust=trust, turns=turns_text)
+    prompt = EXTRACT_PROMPT.format(
+        idx=idx,
+        total=total,
+        trust=trust,
+        artifact_type=artifact_type,
+        artifact_guidance=artifact_guidance(artifact_type),
+        turns=turns_text,
+    )
 
     try:
         client = instructor.from_anthropic(anthropic.Anthropic())
@@ -525,7 +578,7 @@ def extract_chunk_candidates_instructor(
 # ── Stage 1b: Extraction via subprocess Claude CLI (fallback) ─────────────────
 
 def extract_chunk_candidates_subprocess(
-    chunk: list[dict], idx: int, total: int
+    chunk: list[dict], idx: int, total: int, artifact_type: str = "transcript"
 ) -> list[dict]:
     """Fallback extraction via subprocess Claude CLI (no API key required)."""
     global EXTRACTION_ATTEMPTS, EXTRACTION_FAILURES
@@ -535,7 +588,14 @@ def extract_chunk_candidates_subprocess(
         f"[{t['ts'][:16]}] {'User' if t['role']=='user' else 'Claude'}: {t['text']}"
         for t in chunk
     )
-    prompt = EXTRACT_PROMPT.format(idx=idx, total=total, trust=trust, turns=turns_text)
+    prompt = EXTRACT_PROMPT.format(
+        idx=idx,
+        total=total,
+        trust=trust,
+        artifact_type=artifact_type,
+        artifact_guidance=artifact_guidance(artifact_type),
+        turns=turns_text,
+    )
 
     # Append JSON-only instruction for the CLI path (no schema enforcement)
     prompt += "\n\nReturn a JSON object with a single key 'candidates' containing an array of candidate objects. Return ONLY valid JSON. No prose, no markdown fences."
@@ -594,11 +654,11 @@ def fail_if_extraction_backend_failed():
         sys.exit(2)
 
 
-def extract_chunk_candidates(chunk: list[dict], idx: int, total: int) -> list[dict]:
+def extract_chunk_candidates(chunk: list[dict], idx: int, total: int, artifact_type: str = "transcript") -> list[dict]:
     """Route to Instructor or subprocess depending on API key availability."""
     if ANTHROPIC_API_KEY and _PYDANTIC_AVAILABLE:
-        return extract_chunk_candidates_instructor(chunk, idx, total)
-    return extract_chunk_candidates_subprocess(chunk, idx, total)
+        return extract_chunk_candidates_instructor(chunk, idx, total, artifact_type)
+    return extract_chunk_candidates_subprocess(chunk, idx, total, artifact_type)
 
 
 # ── Correction detection — one pass per session ───────────────────────────────
@@ -891,6 +951,11 @@ def submit_candidates(candidates: list[dict]) -> int:
             "source_type":        "harvest",
             "source_agent":       c.get("source_agent") or c.get("source") or "harvest",
             "source":             c.get("source_agent") or c.get("source") or "harvest",
+            "provenance": {
+                "linkType": "harvest",
+                "derivedFrom": [],
+                "artifact_type": c.get("artifact_type", "transcript"),
+            },
         }
         if not entry["body"]:
             continue
@@ -988,7 +1053,7 @@ def load_text_turns(text: str) -> list[dict]:
     return []
 
 
-def harvest_text_input(text: str, source_label: str) -> tuple:
+def harvest_text_input(text: str, source_label: str, artifact_type: str = "transcript") -> tuple:
     """
     Run the extraction pipeline over plain text from a non-Claude source.
     Returns (raw_count, final_count, candidates, signals).
@@ -1000,17 +1065,18 @@ def harvest_text_input(text: str, source_label: str) -> tuple:
         return 0, 0, [], []
 
     chunks = chunk_turns(turns)
-    log(f"  {source_label}: {len(turns)} turns → {len(chunks)} chunk(s)")
+    log(f"  {source_label}/{artifact_type}: {len(turns)} turns → {len(chunks)} chunk(s)")
 
     all_raw = []
     for i, chunk in enumerate(chunks, 1):
-        raw = extract_chunk_candidates(chunk, i, len(chunks))
+        raw = extract_chunk_candidates(chunk, i, len(chunks), artifact_type)
         log(f"    Chunk {i}/{len(chunks)}: {len(raw)} raw candidate(s) (trust={classify_source_trust(chunk)})")
         all_raw.extend(raw)
 
     consolidated = consolidate_candidates(all_raw) if all_raw else []
     for candidate in consolidated:
         candidate["source_agent"] = source_label
+        candidate["artifact_type"] = artifact_type
 
     log("  Detecting correction signals…")
     signals = detect_corrections(turns)
@@ -1141,17 +1207,18 @@ def main():
 
     if input_path is not None or stdin_mode:
         source_label = explicit_source()
+        artifact_type = explicit_artifact_type()
         if stdin_mode:
-            log("Reading from stdin…")
+            log(f"Reading from stdin (source={source_label}, artifact_type={artifact_type})…")
             text = sys.stdin.read()
         else:
             if not input_path.exists():
                 log(f"Error: input file not found: {input_path}")
                 sys.exit(1)
-            log(f"Reading from {input_path} (source={source_label})…")
+            log(f"Reading from {input_path} (source={source_label}, artifact_type={artifact_type})…")
             text = input_path.read_text(encoding="utf-8", errors="replace")
 
-        raw_count, final_count, candidates, signals = harvest_text_input(text, source_label)
+        raw_count, final_count, candidates, signals = harvest_text_input(text, source_label, artifact_type)
 
         all_candidates = dedupe_within_batch(candidates)
         all_candidates = dedupe_against_existing(all_candidates, existing_titles)
@@ -1169,7 +1236,7 @@ def main():
             log("No candidates or correction signals found.")
             return
 
-        source_meta = [{"source": source_label, "input": str(input_path or "stdin")}]
+        source_meta = [{"source": source_label, "artifact_type": artifact_type, "input": str(input_path or "stdin")}]
         write_staged(all_candidates, source_meta, all_signals)
 
         if SUBMIT:

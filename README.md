@@ -144,7 +144,7 @@ Returns active decisions filtered to the requested context, plus memory files. L
 The **Harvest** page (`/harvest`) is the primary way to surface candidate decisions. It starts from what you have: pasted conversation text, an exported file, or local JSONL session files. Harvested candidates are submitted as proposals for review. Session scans also run a correction detection pass — detecting signals like decisions followed, ignored, or requiring restatement — and post them as run annotations automatically.
 
 **Two primary paths in the UI:**
-- **Paste or upload** — recommended default. Paste any conversation export directly, or upload a transcript/log/messages file. Works for Codex, Claude, Cursor, ChatGPT, and other agents.
+- **Paste or upload** — recommended default. Paste any conversation export directly, or upload a transcript/log/messages file. Works for Codex, Claude, Cursor, ChatGPT, and other agents. You can label the input as a transcript, handoff summary, correction/lesson, subagent report, or working notes so extraction uses the right posture.
 - **Scan local sessions** — scans local JSONL session files with guided presets: current project, parent folder, all Claude Code sessions, or custom directory. Includes a preflight count, warnings for broad/noisy scans, and browser auto-scan controls for repeated local intake while the tab is open.
 
 The universal path is Paste or upload. Local scanning is the automated intake path for tools that write session files: it can keep the review queue supplied as ongoing work produces new candidate decisions. Claude Code JSONL sessions are supported today. The session directory is configurable — see `GOVINUITY_SESSION_DIR` in the [Configuration](#configuration) section.
@@ -181,6 +181,9 @@ python3 scripts/harvest_proposals.py --dry-run --no-watermark --max-files 5
 # From a file (Codex, Cursor, LangGraph, OpenAI, etc.)
 python3 scripts/harvest_proposals.py --input session.txt --source codex --submit
 
+# From a handoff or compact summary
+python3 scripts/harvest_proposals.py --input examples/harvest-handoff.txt --source codex --artifact-type handoff_summary --dry-run
+
 # From stdin
 cat session.txt | python3 scripts/harvest_proposals.py --input - --source cursor --submit
 ```
@@ -191,6 +194,13 @@ Supported `--input` formats:
 - **Raw text** — treated as a single block for extraction
 
 The `--source` label is recorded on surfaced candidates for provenance. The script tracks a watermark per session file so incremental runs only process new turns.
+
+For pasted or imported text, `--artifact-type` can guide extraction:
+- `transcript` — normal conversation or exported chat
+- `handoff_summary` — compact summary or next-session brief
+- `correction_or_lesson` — failed approach, correction, or do-not-repeat note
+- `subagent_report` — synthesized report from delegated work
+- `working_notes` — mixed notes or scratch material
 
 **Cron (every 4 hours):**
 ```

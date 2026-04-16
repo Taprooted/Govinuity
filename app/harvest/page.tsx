@@ -19,6 +19,7 @@ type HarvestMeta = {
 
 type SourceMode = "paste" | "scan";
 type SourcePreset = "current" | "parent" | "all" | "custom";
+type ArtifactType = "transcript" | "handoff_summary" | "correction_or_lesson" | "subagent_report" | "working_notes";
 
 type SourceOption = {
   id: SourcePreset;
@@ -57,6 +58,34 @@ const SOURCE_LABELS = [
   { value: "custom", label: "Other" },
 ];
 
+const ARTIFACT_TYPES: Array<{ value: ArtifactType; label: string; hint: string }> = [
+  {
+    value: "transcript",
+    label: "Transcript",
+    hint: "Normal agent conversation or exported chat. Govinuity will look conservatively for settled decisions.",
+  },
+  {
+    value: "handoff_summary",
+    label: "Handoff summary",
+    hint: "A compact summary or next-session brief. Govinuity will look for what should carry forward.",
+  },
+  {
+    value: "correction_or_lesson",
+    label: "Correction or lesson",
+    hint: "A failed approach, correction, or do-not-repeat note. Govinuity will look for durable constraints.",
+  },
+  {
+    value: "subagent_report",
+    label: "Subagent report",
+    hint: "A synthesized result from delegated work. Govinuity will extract conclusions, not raw trace.",
+  },
+  {
+    value: "working_notes",
+    label: "Working notes",
+    hint: "Mixed notes or scratch material. Govinuity will only surface explicit durable signals.",
+  },
+];
+
 function sourceHint(source: string) {
   if (source === "codex") return "Paste the relevant Codex exchange or a short session summary.";
   if (source === "claude-code") return "Paste text here, or use local scanning if you want Govinuity to read Claude Code session files.";
@@ -82,6 +111,7 @@ export default function HarvestPage() {
   const [pastedText, setPastedText] = useState("");
   const [sourceLabel, setSourceLabel] = useState("codex");
   const [customSource, setCustomSource] = useState("");
+  const [artifactType, setArtifactType] = useState<ArtifactType>("transcript");
   const [importFileName, setImportFileName] = useState("");
 
   const [hours, setHours] = useState(48);
@@ -189,7 +219,7 @@ export default function HarvestPage() {
     setError(null);
 
     const payload = sourceMode === "paste"
-      ? { mode: "text", text: pastedText, source: effectiveSource }
+      ? { mode: "text", text: pastedText, source: effectiveSource, artifactType }
       : {
           mode: "sessions",
           hours: effectiveHours,
@@ -317,6 +347,28 @@ export default function HarvestPage() {
             </div>
 
             <p className="text-xs text-[var(--muted)]">{sourceHint(sourceLabel)}</p>
+
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-[var(--muted)]">Input type</span>
+                {ARTIFACT_TYPES.map((artifact) => (
+                  <button
+                    key={artifact.value}
+                    onClick={() => setArtifactType(artifact.value)}
+                    className={`rounded border px-2.5 py-1 text-xs transition-colors ${
+                      artifactType === artifact.value
+                        ? "border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] text-[var(--brand-gold)]"
+                        : "border-[var(--border)] text-[var(--muted)] hover:text-[var(--foreground)]"
+                    }`}
+                  >
+                    {artifact.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-[var(--muted)]">
+                {ARTIFACT_TYPES.find((artifact) => artifact.value === artifactType)?.hint}
+              </p>
+            </div>
 
             <div className="flex flex-wrap items-center gap-2">
               <label className="inline-flex cursor-pointer rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs text-[var(--foreground)] hover:border-[var(--brand-gold)]">

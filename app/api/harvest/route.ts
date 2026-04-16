@@ -19,6 +19,15 @@ type HarvestMeta = {
 };
 
 type SourcePreset = "current" | "parent" | "all" | "custom";
+type ArtifactType = "transcript" | "handoff_summary" | "correction_or_lesson" | "subagent_report" | "working_notes";
+
+const ARTIFACT_TYPES = new Set<ArtifactType>([
+  "transcript",
+  "handoff_summary",
+  "correction_or_lesson",
+  "subagent_report",
+  "working_notes",
+]);
 
 function readMeta(): HarvestMeta {
   try {
@@ -274,6 +283,7 @@ export async function POST(request: Request) {
   const hours: number = Math.max(1, Math.min(168, Number(body.hours) || 48));
   const text: string | undefined = typeof body.text === "string" ? body.text : undefined;
   const source: string = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "paste";
+  const artifactType: ArtifactType = ARTIFACT_TYPES.has(body.artifactType) ? body.artifactType : "transcript";
   const sessionDir: string | undefined = typeof body.sessionDir === "string" && body.sessionDir.trim() ? body.sessionDir.trim() : undefined;
   const sourcePreset: SourcePreset = ["current", "parent", "all", "custom"].includes(body.sourcePreset) ? body.sourcePreset : "current";
   const ignoreWatermark: boolean = Boolean(body.ignoreWatermark);
@@ -293,7 +303,7 @@ export async function POST(request: Request) {
     const started = Date.now();
     try {
       const { stdout, stderr } = await runScript(
-        ["scripts/harvest_proposals.py", "--submit", "--input", "-", "--source", source],
+        ["scripts/harvest_proposals.py", "--submit", "--input", "-", "--source", source, "--artifact-type", artifactType],
         text,
         scriptEnv,
       );

@@ -17,7 +17,9 @@ type ProposedDecision = {
   scope_ref?: string;
   confidence?: number;
   context?: string;
-  provenance?: { task_id?: string };
+  source_type?: string;
+  source_agent?: string;
+  provenance?: { task_id?: string; artifact_type?: string };
   // Governance fields (v2 — may be absent on older proposals)
   summary_for_human?: string;
   why_surfaced?: string;
@@ -96,6 +98,26 @@ const CLASS_LABELS: Record<string, string> = {
   exploratory_direction:      "exploration",
   ephemeral_note:             "temporary",
 };
+
+const ARTIFACT_LABELS: Record<string, string> = {
+  transcript: "transcript",
+  handoff_summary: "handoff summary",
+  correction_or_lesson: "correction",
+  subagent_report: "subagent report",
+  working_notes: "working notes",
+};
+
+function artifactLabel(p?: ProposedDecision | null) {
+  const artifactType = p?.provenance?.artifact_type;
+  if (!artifactType) return null;
+  return ARTIFACT_LABELS[artifactType] ?? artifactType.replace(/_/g, " ");
+}
+
+function sourceLabel(p?: ProposedDecision | null) {
+  if (!p) return null;
+  const source = p.source_agent ?? p.source_type;
+  return source ? source.replace(/-/g, " ") : null;
+}
 
 function conflictList(conflicts?: ProposedDecision["possible_conflicts"]): string[] {
   if (!conflicts || conflicts.length === 0) return [];
@@ -284,6 +306,8 @@ export default function ReviewPage() {
 
   const hasConflicts = conflictList(selectedProposal?.possible_conflicts).length > 0;
   const revLabel = selectedProposal ? reversibilityLabel(selectedProposal.reversibility) : null;
+  const selectedArtifact = artifactLabel(selectedProposal);
+  const selectedSource = sourceLabel(selectedProposal);
 
   return (
     <div className="space-y-10">
@@ -344,6 +368,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                 const conflicts = conflictList(p.possible_conflicts);
                 const rev = reversibilityLabel(p.reversibility);
                 const cls = p.proposal_class ? CLASS_LABELS[p.proposal_class] ?? p.proposal_class : null;
+                const artifact = artifactLabel(p);
                 return (
                   <div
                     key={p.id}
@@ -357,6 +382,7 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                     {/* Meta row */}
                     <div className="mb-2 flex items-center gap-2 flex-wrap">
                       {cls && <span className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">{cls}</span>}
+                      {artifact && <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--muted)]">{artifact}</span>}
                       {rev && (
                         <span className="flex items-center gap-1">
                           <span className={`inline-block h-1.5 w-1.5 rounded-full ${rev.dot}`} />
@@ -421,6 +447,8 @@ python3 scripts/harvest_proposals.py --submit`}</pre>
                         {CLASS_LABELS[selectedProposal.proposal_class] ?? selectedProposal.proposal_class}
                       </span>
                     )}
+                    {selectedSource && <span>{selectedSource}</span>}
+                    {selectedArtifact && <span>{selectedArtifact}</span>}
                     {selectedProposal.scope && (
                       <span>{selectedProposal.scope}{selectedProposal.scope_ref && selectedProposal.scope_ref !== selectedProposal.scope ? ` · ${selectedProposal.scope_ref}` : ""}</span>
                     )}
