@@ -364,45 +364,109 @@ def classify_source_trust(turns: list[dict]) -> str:
     return "medium"
 
 
+def normalize_dedupe_text(value: str) -> str:
+    text = (value or "").lower()
+    replacements = {
+        "don't": "do not",
+        "dont": "do not",
+        "can't": "cannot",
+        "claude exclusive": "claude only",
+        "claude-specific": "claude only",
+        "claude specific": "claude only",
+        "agent agnostic": "multiple agent platforms",
+        "multi agent": "multiple agent",
+        "filesystem": "file system",
+        "public-facing": "public",
+        "public facing": "public",
+        "ui": "interface",
+        "docs": "documentation",
+    }
+    for before, after in replacements.items():
+        text = text.replace(before, after)
+    text = re.sub(r"[^\w\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def token_set(value: str) -> set[str]:
+    stopwords = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
+        "is", "it", "its", "of", "on", "or", "should", "that", "the", "this", "to",
+        "with", "without",
+    }
+    return {
+        token
+        for token in normalize_dedupe_text(value).split()
+        if len(token) > 2 and token not in stopwords
+    }
+
+
 def jaccard(a: str, b: str) -> float:
-    sa = set(re.sub(r"[^\w\s]", "", a.lower()).split())
-    sb = set(re.sub(r"[^\w\s]", "", b.lower()).split())
+    sa = token_set(a)
+    sb = token_set(b)
     if not sa or not sb:
         return 0.0
     return len(sa & sb) / len(sa | sb)
 
 
-def load_existing_titles() -> list[str]:
-    """Return titles of existing decisions (any status) for dedup."""
+def dedupe_record(title: str = "", summary: str = "", body: str = "", proposal_class: str = "", scope: str = "") -> dict:
+    title = title or ""
+    summary = summary or ""
+    body = body or ""
+    return {
+        "title": title,
+        "summary": summary,
+        "body": body[:500],
+        "proposal_class": proposal_class or "",
+        "scope": scope or "",
+        "combined": " ".join(part for part in [title, summary, body[:240]] if part),
+    }
+
+
+def candidate_dedupe_record(candidate: dict) -> dict:
+    return dedupe_record(
+        title=candidate.get("title", ""),
+        summary=candidate.get("summary_for_human", ""),
+        body=candidate.get("body", ""),
+        proposal_class=candidate.get("proposal_class", ""),
+        scope=candidate.get("scope", ""),
+    )
+
+
+def load_existing_dedupe_records() -> list[dict]:
+    """Return existing decisions with enough text for semantic-ish dedupe."""
     if DB_PATH.exists():
         try:
             conn = sqlite3.connect(DB_PATH)
-            rows = conn.execute("SELECT title, body FROM decisions").fetchall()
+            rows = conn.execute("SELECT title, summary_for_human, body, proposal_class, scope FROM decisions").fetchall()
             conn.close()
-            titles = []
-            for title, body in rows:
-                t = title or (body or "")[:80]
-                if t:
-                    titles.append(t)
-            return titles
+            records = []
+            for title, summary, body, proposal_class, scope in rows:
+                if title or summary or body:
+                    records.append(dedupe_record(title, summary, body, proposal_class, scope))
+            return records
         except Exception as e:
             log(f"  Warning: could not read SQLite decisions for dedup: {e}")
 
     if not DECISIONS_PATH.exists():
         return []
-    titles = []
+    records = []
     for line in DECISIONS_PATH.read_text().splitlines():
         line = line.strip()
         if not line:
             continue
         try:
             entry = json.loads(line)
-            t = entry.get("title") or (entry.get("body", "") or "")[:80]
-            if t:
-                titles.append(t)
+            if entry.get("title") or entry.get("summary_for_human") or entry.get("body"):
+                records.append(dedupe_record(
+                    entry.get("title", ""),
+                    entry.get("summary_for_human", ""),
+                    entry.get("body", ""),
+                    entry.get("proposal_class", ""),
+                    entry.get("scope", ""),
+                ))
         except Exception:
             pass
-    return titles
+    return records
 
 
 # ── Turn loading ──────────────────────────────────────────────────────────────
@@ -857,8 +921,7 @@ def consolidate_candidates(all_candidates: list[dict]) -> list[dict]:
     sorted_by_pos = sorted(filtered, key=lambda c: c.get("chunk_position", 0.0), reverse=True)
     kept: list[dict] = []
     for candidate in sorted_by_pos:
-        title = candidate.get("title", "")
-        duplicate = any(jaccard(title, k.get("title", "")) >= 0.45 for k in kept)
+        duplicate = any(is_duplicate_candidate(candidate, candidate_dedupe_record(k))[0] for k in kept)
         if not duplicate:
             kept.append(candidate)
 
@@ -868,15 +931,50 @@ def consolidate_candidates(all_candidates: list[dict]) -> list[dict]:
 
 # ── Stage 3: Deduplication against existing decisions ─────────────────────────
 
-def dedupe_against_existing(candidates: list[dict], existing_titles: list[str]) -> list[dict]:
+def candidate_similarity(candidate: dict, existing: dict) -> tuple[float, str]:
+    candidate_record = candidate_dedupe_record(candidate)
+    comparisons = [
+        ("title", jaccard(candidate_record["title"], existing.get("title", ""))),
+        ("summary", jaccard(candidate_record["summary"], existing.get("summary", ""))),
+        ("body", jaccard(candidate_record["body"], existing.get("body", ""))),
+        ("combined", jaccard(candidate_record["combined"], existing.get("combined", ""))),
+    ]
+
+    # Same class/scope is weak evidence by itself, but enough to raise close text matches.
+    class_scope_bonus = 0.0
+    if candidate_record["proposal_class"] and candidate_record["proposal_class"] == existing.get("proposal_class"):
+        class_scope_bonus += 0.04
+    if candidate_record["scope"] and candidate_record["scope"] == existing.get("scope"):
+        class_scope_bonus += 0.02
+
+    label, score = max(comparisons, key=lambda item: item[1])
+    return min(score + class_scope_bonus, 1.0), label
+
+
+def is_duplicate_candidate(candidate: dict, existing: dict) -> tuple[bool, float, str]:
+    score, field = candidate_similarity(candidate, existing)
+    if field in ("title", "summary") and score >= 0.50:
+        return True, score, field
+    if field == "combined" and score >= 0.46:
+        return True, score, field
+    if field == "body" and score >= 0.42:
+        return True, score, field
+    return False, score, field
+
+
+def dedupe_against_existing(candidates: list[dict], existing_records: list[dict]) -> list[dict]:
     kept = []
     for c in candidates:
-        title = c.get("title", "")
-        body  = c.get("body", "")
-        probe = title or body[:80]
-        best_sim = max((jaccard(probe, ex) for ex in existing_titles), default=0.0)
-        if best_sim >= 0.55:
-            log(f"    Dedup skip (sim={best_sim:.2f}): {probe[:60]}")
+        probe = c.get("title") or c.get("summary_for_human") or c.get("body", "")[:80]
+        best = (False, 0.0, "none", None)
+        for existing in existing_records:
+            duplicate, score, field = is_duplicate_candidate(c, existing)
+            if score > best[1]:
+                best = (duplicate, score, field, existing)
+
+        if best[0]:
+            existing_title = (best[3] or {}).get("title", "existing decision")
+            log(f"    Dedup skip ({best[2]} sim={best[1]:.2f}): {probe[:52]} → {existing_title[:52]}")
         else:
             kept.append(c)
     return kept
@@ -885,11 +983,10 @@ def dedupe_against_existing(candidates: list[dict], existing_titles: list[str]) 
 def dedupe_within_batch(candidates: list[dict]) -> list[dict]:
     kept = []
     for c in candidates:
-        probe = c.get("title") or c.get("body", "")[:80]
         duplicate = False
         for k in kept:
-            other = k.get("title") or k.get("body", "")[:80]
-            if jaccard(probe, other) >= 0.55:
+            is_dup, _, _ = is_duplicate_candidate(c, candidate_dedupe_record(k))
+            if is_dup:
                 duplicate = True
                 break
         if not duplicate:
@@ -1192,8 +1289,8 @@ def main():
     )
 
     watermark = load_watermark()
-    existing_titles = load_existing_titles()
-    log(f"Loaded {len(existing_titles)} existing decision titles for dedup")
+    existing_records = load_existing_dedupe_records()
+    log(f"Loaded {len(existing_records)} existing decision records for dedup")
 
     since_ts: Optional[str] = None
     if not FULL_HISTORY:
@@ -1221,7 +1318,7 @@ def main():
         raw_count, final_count, candidates, signals = harvest_text_input(text, source_label, artifact_type)
 
         all_candidates = dedupe_within_batch(candidates)
-        all_candidates = dedupe_against_existing(all_candidates, existing_titles)
+        all_candidates = dedupe_against_existing(all_candidates, existing_records)
         all_signals = signals
 
         log(f"\nFinal candidate count: {len(all_candidates)}, correction signals: {len(all_signals)}")
@@ -1304,7 +1401,7 @@ def main():
     log(f"Batch dedup: {before_dedup} → {len(all_candidates)}")
 
     before_existing = len(all_candidates)
-    all_candidates = dedupe_against_existing(all_candidates, existing_titles)
+    all_candidates = dedupe_against_existing(all_candidates, existing_records)
     log(f"Existing dedup: {before_existing} → {len(all_candidates)}")
 
     all_signals = [s for ss in session_signals for s in ss["signals"]]
