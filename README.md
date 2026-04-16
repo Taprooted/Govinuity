@@ -187,6 +187,9 @@ python3 scripts/harvest_proposals.py --input examples/harvest-handoff.txt --sour
 # From a correction or lesson learned
 python3 scripts/harvest_proposals.py --input examples/harvest-correction.txt --source codex --artifact-type correction_or_lesson --dry-run
 
+# From a synthesized subagent report
+python3 scripts/harvest_proposals.py --input examples/harvest-subagent-report.txt --source codex --artifact-type subagent_report --dry-run
+
 # From stdin
 cat session.txt | python3 scripts/harvest_proposals.py --input - --source cursor --submit
 ```

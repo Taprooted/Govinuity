@@ -1,0 +1,12 @@
+Subagent report:
+
+Task:
+Review how a reference implementation handles request context and summarize durable lessons for the main implementation.
+
+Findings:
+- The reference keeps authorization checks at the API boundary instead of scattering permission checks through UI components.
+- It passes a narrow user/session object into downstream helpers, not the full request object.
+- It avoids writing raw provider tokens or secret-bearing request headers to logs and generated debugging output.
+
+Recommendation:
+For future implementation work, keep authorization and session-boundary decisions explicit: authorize at the server/API boundary, pass narrow session context, and sanitize secrets from logs. Treat the subagent's raw file reads and intermediate exploration as disposable; only these conclusions should be considered for review.
