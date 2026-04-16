@@ -4,6 +4,7 @@ import path from "path";
 import { PATHS } from "../../../lib/config";
 
 const META_FILE = path.join(PATHS.metaDir, "harvest_meta.json");
+const PROJECT_ROOT = /* turbopackIgnore: true */ process.cwd();
 
 type HarvestMeta = {
   running: boolean;
@@ -16,6 +17,8 @@ type HarvestMeta = {
   last_duration_ms?: number;
   last_output_tail?: string[];
 };
+
+type SourcePreset = "current" | "parent" | "all" | "custom";
 
 function readMeta(): HarvestMeta {
   try {
@@ -40,10 +43,39 @@ function parseOutput(output: string): { submitted: number; annotations: number }
   return { submitted, annotations };
 }
 
+const PYTHON_BIN = process.env.GOVINUITY_PYTHON_BIN || "python3";
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeHarvestOutputLine(line: string): string {
+  let sanitized = line;
+
+  if (HOME) {
+    sanitized = sanitized.replace(
+      new RegExp(`${escapeRegExp(HOME)}/\\.claude/projects/\\S+`, "g"),
+      "~/.claude/projects/<project>",
+    );
+  }
+  sanitized = sanitized.replace(new RegExp(escapeRegExp(PROJECT_ROOT), "g"), "<repo>");
+  if (HOME) sanitized = sanitized.replace(new RegExp(escapeRegExp(HOME), "g"), "~");
+
+  return sanitized;
+}
+
+function harvestOutputTail(output: string): string[] {
+  return output
+    .split("\n")
+    .filter(Boolean)
+    .slice(-20)
+    .map(sanitizeHarvestOutputLine);
+}
+
 function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("python3", args, {
-      cwd: process.cwd(),
+    const proc = spawn(PYTHON_BIN, args, {
+      cwd: PROJECT_ROOT,
       timeout: 600_000,
       env: env ?? process.env,
     });
@@ -61,13 +93,13 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
     proc.on("close", (code, signal) => {
       if (signal) {
         const combined = (stdout + "\n" + stderr).trim();
-        const tail = combined.split("\n").filter(Boolean).slice(-12).join("\n");
+        const tail = harvestOutputTail(combined).slice(-12).join("\n");
         reject(new Error(tail || `Harvest script was terminated by ${signal}`));
         return;
       }
       if (code && code !== 0) {
         const combined = (stdout + "\n" + stderr).trim();
-        const tail = combined.split("\n").filter(Boolean).slice(-12).join("\n");
+        const tail = harvestOutputTail(combined).slice(-12).join("\n");
         reject(new Error(tail || `Harvest script exited with code ${code}`));
         return;
       }
@@ -80,17 +112,22 @@ function runScript(args: string[], stdin?: string, env?: NodeJS.ProcessEnv): Pro
 const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "";
 
 function claudeProjectDirFor(projectPath: string): string {
-  return path.join(HOME, ".claude", "projects", path.resolve(projectPath).replace(/[^A-Za-z0-9_-]/g, "-"));
+  const resolved = path.isAbsolute(projectPath) ? projectPath : path.join(/* turbopackIgnore: true */ PROJECT_ROOT, projectPath);
+  return path.join(HOME, ".claude", "projects", resolved.replace(/[^A-Za-z0-9_-]/g, "-"));
+}
+
+function allClaudeProjectsDir(): string {
+  return path.join(HOME, ".claude", "projects");
 }
 
 function defaultSessionDir(): string {
   const configured = process.env.GOVINUITY_SESSION_DIR;
   if (configured) return configured;
 
-  const currentProjectDir = claudeProjectDirFor(process.cwd());
+  const currentProjectDir = claudeProjectDirFor(PROJECT_ROOT);
   if (fs.existsSync(currentProjectDir)) return currentProjectDir;
 
-  return path.join(HOME, ".claude", "projects");
+  return allClaudeProjectsDir();
 }
 
 function tildify(p: string): string {
@@ -98,10 +135,130 @@ function tildify(p: string): string {
   return p;
 }
 
-export async function GET() {
+function expandHome(p: string): string {
+  if (p === "~") return HOME;
+  if (p.startsWith("~/")) return path.join(HOME, p.slice(2));
+  return p;
+}
+
+function resolveSessionDir(preset: SourcePreset, customDir?: string): string {
+  if (preset === "custom" && customDir?.trim()) return expandHome(customDir.trim());
+  if (preset === "parent") return claudeProjectDirFor(path.dirname(PROJECT_ROOT));
+  if (preset === "all") return allClaudeProjectsDir();
+  return defaultSessionDir();
+}
+
+function sourceOptions() {
+  return [
+    {
+      id: "current",
+      label: "Current project sessions",
+      description: "Narrowest scan. Best when the agent worked inside this repo.",
+      sessionDir: tildify(defaultSessionDir()),
+      recommended: true,
+    },
+    {
+      id: "parent",
+      label: "Parent folder sessions",
+      description: "Useful when the agent worked from the parent workspace. May include adjacent projects.",
+      sessionDir: tildify(claudeProjectDirFor(path.dirname(PROJECT_ROOT))),
+      warning: "May include unrelated project work.",
+    },
+    {
+      id: "all",
+      label: "All Claude Code sessions",
+      description: "Broad scan across Claude Code project folders. Highest recall, highest noise.",
+      sessionDir: tildify(allClaudeProjectsDir()),
+      warning: "Broad scan. Use only when you intentionally want cross-project candidates.",
+    },
+    {
+      id: "custom",
+      label: "Custom directory",
+      description: "Use another JSONL session export directory.",
+      sessionDir: "",
+    },
+  ];
+}
+
+function isHarvestGeneratedSession(filePath: string): boolean {
+  const markers = [
+    "You are a continuity-extraction assistant for a governed decision memory system.",
+    "You are reviewing a Claude Code session transcript to detect continuity outcome signals.",
+  ];
+  try {
+    const fd = fs.openSync(/* turbopackIgnore: true */ filePath, "r");
+    const buffer = Buffer.alloc(8192);
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0);
+    fs.closeSync(fd);
+    const sample = buffer.subarray(0, bytes).toString("utf8");
+    return markers.some((marker) => sample.includes(marker));
+  } catch {
+    return false;
+  }
+}
+
+function collectJsonlFiles(dir: string): string[] {
+  if (!fs.existsSync(/* turbopackIgnore: true */ dir)) return [];
+  const entries = fs.readdirSync(/* turbopackIgnore: true */ dir, { withFileTypes: true });
+  const files: string[] = [];
+
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(full);
+    if (entry.isDirectory()) {
+      try {
+        for (const child of fs.readdirSync(/* turbopackIgnore: true */ full, { withFileTypes: true })) {
+          if (child.isFile() && child.name.endsWith(".jsonl")) files.push(path.join(full, child.name));
+        }
+      } catch {
+        // Ignore unreadable project folders.
+      }
+    }
+  }
+
+  return Array.from(new Set(files));
+}
+
+function preflightSessionDir(sessionDir: string, preset: SourcePreset) {
+  const resolved = expandHome(sessionDir);
+  const exists = fs.existsSync(/* turbopackIgnore: true */ resolved);
+  const files = exists ? collectJsonlFiles(resolved) : [];
+  const generated = files.filter(isHarvestGeneratedSession);
+  const usable = files.filter((f) => !generated.includes(f));
+  const newest = usable
+    .map((file) => ({ file, mtime: fs.statSync(/* turbopackIgnore: true */ file).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)[0];
+  const warnings: string[] = [];
+
+  if (!exists) warnings.push("This directory does not exist.");
+  if (exists && usable.length === 0 && generated.length > 0) warnings.push("Only harvest-generated sessions were found.");
+  if (exists && files.length === 0) warnings.push("No JSONL session files were found.");
+  if (preset === "parent") warnings.push("This source may include adjacent projects from the parent folder.");
+  if (preset === "all") warnings.push("This is a broad scan and may include unrelated project work.");
+
+  return {
+    exists,
+    resolved: tildify(resolved),
+    totalFiles: files.length,
+    usableFiles: usable.length,
+    harvestGeneratedFiles: generated.length,
+    newestUsableFile: newest ? path.basename(newest.file) : null,
+    newestUsableAt: newest ? new Date(newest.mtime).toISOString() : null,
+    warnings,
+  };
+}
+
+export async function GET(request: Request) {
   const meta = readMeta();
+  const { searchParams } = new URL(request.url);
+  const preset = (searchParams.get("sourcePreset") ?? "current") as SourcePreset;
+  const customDir = searchParams.get("sessionDir") ?? undefined;
+  if (searchParams.get("preflight") === "true") {
+    const sessionDir = resolveSessionDir(preset, customDir);
+    return Response.json({ preflight: preflightSessionDir(sessionDir, preset), sources: sourceOptions() });
+  }
   const sessionDir = tildify(defaultSessionDir());
-  return Response.json({ meta, sessionDir });
+  return Response.json({ meta, sessionDir, sources: sourceOptions() });
 }
 
 export async function POST(request: Request) {
@@ -118,11 +275,12 @@ export async function POST(request: Request) {
   const text: string | undefined = typeof body.text === "string" ? body.text : undefined;
   const source: string = typeof body.source === "string" && body.source.trim() ? body.source.trim() : "paste";
   const sessionDir: string | undefined = typeof body.sessionDir === "string" && body.sessionDir.trim() ? body.sessionDir.trim() : undefined;
+  const sourcePreset: SourcePreset = ["current", "parent", "all", "custom"].includes(body.sourcePreset) ? body.sourcePreset : "current";
   const ignoreWatermark: boolean = Boolean(body.ignoreWatermark);
   const maxFiles: number = Math.max(1, Math.min(100, Number(body.maxFiles) || 25));
   const scriptEnv = { ...process.env, GOVINUITY_URL: process.env.GOVINUITY_URL || new URL(request.url).origin };
 
-  const scriptPath = path.join(process.cwd(), "scripts", "harvest_proposals.py");
+  const scriptPath = path.join(PROJECT_ROOT, "scripts", "harvest_proposals.py");
   if (!fs.existsSync(scriptPath)) {
     return Response.json({ error: "harvest_proposals.py not found in scripts/" }, { status: 500 });
   }
@@ -141,8 +299,7 @@ export async function POST(request: Request) {
       );
       const duration_ms = Date.now() - started;
       const combined = (stdout + "\n" + stderr).trim();
-      const lines = combined.split("\n").filter(Boolean);
-      const tail = lines.slice(-20);
+      const tail = harvestOutputTail(combined);
       const { submitted, annotations } = parseOutput(combined);
       return Response.json({ ok: true, submitted, annotations, duration_ms, output: tail });
     } catch (err: unknown) {
@@ -154,7 +311,7 @@ export async function POST(request: Request) {
   writeMeta({ ...meta, running: true, started_at: new Date().toISOString(), running_hours: hours });
   const started = Date.now();
 
-  const env = { ...scriptEnv, GOVINUITY_SESSION_DIR: sessionDir || defaultSessionDir() };
+  const env = { ...scriptEnv, GOVINUITY_SESSION_DIR: resolveSessionDir(sourcePreset, sessionDir) };
   const args = ["scripts/harvest_proposals.py", "--submit", "--since", `${hours}h`, "--max-files", String(maxFiles)];
   if (ignoreWatermark) args.push("--no-watermark");
 
@@ -163,8 +320,7 @@ export async function POST(request: Request) {
       .then(({ stdout, stderr }) => {
         const duration_ms = Date.now() - started;
         const combined = (stdout + "\n" + stderr).trim();
-        const lines = combined.split("\n").filter(Boolean);
-        const tail = lines.slice(-20);
+        const tail = harvestOutputTail(combined);
         const { submitted, annotations } = parseOutput(combined);
         writeMeta({
           running: false,

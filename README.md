@@ -23,7 +23,7 @@ Surface → Review → Ratify → Inject → Measure
 
 | Step | What happens |
 |---|---|
-| **Surface** | Candidate decisions are extracted from agent session files via the **Harvest** page or `scripts/harvest_proposals.py`. Proposals can also be submitted directly via `POST /api/decisions`. |
+| **Surface** | Candidate decisions are extracted from pasted conversations, imported files, local session files, or direct API submissions. |
 | **Review** | The Review page surfaces proposals for human assessment — with rationale, reversibility, and conflict signals |
 | **Ratify** | You approve, defer, reject, or supersede. Only approved decisions become eligible for injection |
 | **Inject** | On each session, eligible decisions are injected into agent context via API or a generated `GOVERNED_CONTINUITY.md` file |
@@ -36,10 +36,10 @@ This loop is the core of Govinuity. The rest is infrastructure for running it.
 ## What's in the repo
 
 - **Next.js local dashboard** — governance UI running at `localhost:3000`
-- **Harvest UI** — trigger extraction from session files or paste conversation text directly; auto-harvest on a timer; works with any agent tool
+- **Harvest UI** — surface proposals from pasted conversations, imported files, local session scans, or API workflows; works with any agent tool that can provide text
 - **Review UI** — human ratification of proposed decisions, with keyboard shortcuts
 - **Decision memory API** — `GET /api/memory` returns active decisions scoped to the requesting context
-- **Harvest script** — `scripts/harvest_proposals.py` extracts candidate decisions from session files and detects outcome signals; runs automatically or via the UI
+- **Harvest script** — `scripts/harvest_proposals.py` extracts candidate decisions from session files, files, or stdin and detects outcome signals
 - **Run logging and annotation** — every injection session is recorded; outcome annotations (decision followed, correction required, etc.) are posted automatically by the harvest script
 - **Local SQLite persistence** — all data stays on your machine; no external services required
 
@@ -88,9 +88,9 @@ Then open [/review](http://localhost:3000/review) and ratify it.
 | Surface | Purpose |
 |---|---|
 | **Dashboard** | Governance pulse — pending review, ratified decisions, run metrics, outcome signals |
-| **Harvest** | Extract candidate decisions from session files or pasted text; trigger auto-harvest on a timer |
+| **Harvest** | Extract candidate decisions from pasted text, imported files, local session scans, or API workflows |
 | **Review** | Ratify proposed decisions; approve, defer, reject, or supersede |
-| **Decisions** | Inspect the active decision log; generate `GOVERNED_CONTINUITY.md` for Claude Code |
+| **Decisions** | Inspect the active decision log; generate `GOVERNED_CONTINUITY.md` for file-aware agents |
 | **Runs** | Injection history — what was injected per session, exclusion reasons, outcome annotations |
 
 ---
@@ -111,15 +111,23 @@ Then open [/review](http://localhost:3000/review) and ratify it.
 
 ---
 
-## Injecting decisions into Claude Code
+## Reusing ratified decisions
 
-From the [Decisions](http://localhost:3000/decisions) page, use the **Generate for Claude Code** panel. Enter the path where you want the file written (e.g. `/your/project/.claude/GOVERNED_CONTINUITY.md`), then add one line to your `CLAUDE.md`:
+Govinuity is agent-platform agnostic at the continuity layer. Any tool that can receive text can use ratified decisions.
+
+Common paths:
+
+- **Copy context** — call `GET /api/memory` and paste the returned continuity context into an agent session.
+- **Generate a file** — from the [Decisions](http://localhost:3000/decisions) page, generate `GOVERNED_CONTINUITY.md` and point a file-aware agent at it.
+- **Call the API** — custom agents can call `GET /api/memory` at session start and `POST /api/run-annotations` later.
+
+For Claude Code, enter a path such as `/your/project/.claude/GOVERNED_CONTINUITY.md`, then add one line to your `CLAUDE.md`:
 
 ```
 @.claude/GOVERNED_CONTINUITY.md
 ```
 
-Claude Code reads your ratified decisions at the start of every session. Re-generate whenever decisions change — the panel tracks whether the file already exists and shows "Update" accordingly.
+Re-generate whenever decisions change — the panel tracks whether the file already exists and shows "Update" accordingly.
 
 ## API injection (agent-driven)
 
@@ -133,23 +141,29 @@ Returns active decisions filtered to the requested context, plus memory files. L
 
 ## Harvesting — surfacing candidate decisions
 
-The **Harvest** page (`/harvest`) is the primary way to surface candidate decisions. It scans session files in a configured directory, extracts candidates, and submits them as proposals for review. It also runs a correction detection pass — detecting signals like decisions followed, ignored, or requiring restatement — and posts them as run annotations automatically.
+The **Harvest** page (`/harvest`) is the primary way to surface candidate decisions. It starts from what you have: pasted conversation text, an exported file, or local JSONL session files. Harvested candidates are submitted as proposals for review. Session scans also run a correction detection pass — detecting signals like decisions followed, ignored, or requiring restatement — and post them as run annotations automatically.
 
-**Two modes in the UI:**
-- **Scan session files** — scans the configured session directory with a lookback window (4h / 24h / 48h / 7d). Supports auto-harvest on a timer (browser-based).
-- **Paste session text** — paste any conversation export directly. Accepts labeled turns (`User:` / `Assistant:`), a JSON messages array, or raw text. Select a source label (Cursor, OpenAI Assistants, LangGraph, etc.) for provenance.
+**Two primary paths in the UI:**
+- **Paste or upload** — recommended default. Paste any conversation export directly, or upload a transcript/log/messages file. Works for Codex, Claude, Cursor, ChatGPT, and other agents.
+- **Scan local sessions** — scans local JSONL session files with guided presets: current project, parent folder, all Claude Code sessions, or custom directory. Includes a preflight count, warnings for broad/noisy scans, and browser auto-scan controls for repeated local intake while the tab is open.
 
-The session directory defaults to `~/.claude/projects` but is configurable — see `GOVINUITY_SESSION_DIR` in the [Configuration](#configuration) section.
+The universal path is Paste or upload. Local scanning is the automated intake path for tools that write session files: it can keep the review queue supplied as ongoing work produces new candidate decisions. Claude Code JSONL sessions are supported today. The session directory is configurable — see `GOVINUITY_SESSION_DIR` in the [Configuration](#configuration) section.
 
 **CLI / automation**
 
-The harvest script can also be run directly, which is useful for cron jobs or CI pipelines:
+The harvest script can also be run directly, which is useful for durable cron jobs, local launch agents, or CI pipelines:
 
 `scripts/harvest_proposals.py` uses Instructor + Anthropic SDK when available, or the Claude CLI as a fallback. It deduplicates against existing decisions and stages results for human review. Nothing is submitted without an explicit `--submit` flag.
 
-**Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. On Python 3.9, some Instructor/Pydantic versions may also require `eval_type_backport`; without a working Anthropic/Instructor path, the script falls back to the Claude CLI if installed and authenticated separately. `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
+**Requirements:** Python 3.9+. For Instructor extraction: `pip install pydantic anthropic instructor python-dotenv`. On Python 3.9, some Instructor/Pydantic versions may also require `eval_type_backport`; Python 3.10+ avoids that class of typing error. Without a working Anthropic/Instructor path, the script falls back to the Claude CLI if installed and authenticated separately. `python-dotenv` is optional but recommended so the script picks up your `.env.local` automatically.
 
-By default, the script looks for the Claude Code session directory matching the current repo path. If it cannot find that directory, it falls back to `~/.claude/projects`. It processes the newest 25 matching session files by default to avoid slow, noisy all-history scans.
+If your system `python3` is older but another interpreter has the dependencies installed, set `GOVINUITY_PYTHON_BIN` before running the web app:
+
+```bash
+GOVINUITY_PYTHON_BIN=/opt/homebrew/bin/python3.11 npm run dev
+```
+
+By default, the script looks for the Claude Code session directory matching the current repo path. If it cannot find that directory, it falls back to `~/.claude/projects`. It processes the newest 25 matching session files by default to avoid slow, noisy all-history scans. Non-Claude users can use `--input` with transcripts, exported messages, or stdin.
 
 ```bash
 # Submit proposals from the last 48 hours
@@ -164,11 +178,11 @@ python3 scripts/harvest_proposals.py --submit --since 7d
 # Debug a scan without the previous watermark, limited to the newest files
 python3 scripts/harvest_proposals.py --dry-run --no-watermark --max-files 5
 
-# From a file (Cursor, LangGraph, OpenAI Assistants, etc.)
-python3 scripts/harvest_proposals.py --input session.txt --source cursor --submit
+# From a file (Codex, Cursor, LangGraph, OpenAI, etc.)
+python3 scripts/harvest_proposals.py --input session.txt --source codex --submit
 
 # From stdin
-cat session.txt | python3 scripts/harvest_proposals.py --input - --source langgraph --submit
+cat session.txt | python3 scripts/harvest_proposals.py --input - --source cursor --submit
 ```
 
 Supported `--input` formats:

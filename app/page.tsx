@@ -202,23 +202,6 @@ export default function HomePage() {
     }
   }
 
-  async function runHarvest() {
-    setHarvesting(true);
-    setHarvestResult(null);
-    const res = await fetch("/api/harvest", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hours: 48 }),
-    });
-    const data = await res.json();
-    setHarvesting(false);
-    if (res.ok && data.ok) {
-      setHarvestResult({ submitted: data.submitted, annotations: data.annotations });
-      setHarvestMeta(await fetch("/api/harvest").then((r) => r.json()).then((d) => d.meta ?? null));
-      load(activeProject);
-    }
-  }
-
   function handleProjectSelect(p: string | null) {
     setActiveProject(p);
     load(p);
@@ -245,13 +228,12 @@ export default function HomePage() {
 
       {/* Harvest bar */}
       <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5">
-        <button
-          onClick={runHarvest}
-          disabled={harvesting}
-          className="rounded bg-[var(--brand-green)] px-3 py-1 text-xs text-white transition-opacity hover:opacity-85 disabled:opacity-40 shrink-0"
+        <Link
+          href="/harvest"
+          className="rounded bg-[var(--brand-green)] px-3 py-1 text-xs text-white transition-opacity hover:opacity-85 shrink-0"
         >
-          {harvesting ? "Harvesting…" : "Harvest sessions"}
-        </button>
+          {harvesting ? "Harvesting…" : "Open Harvest"}
+        </Link>
         <span className="text-xs text-[var(--muted)]">
           {harvestResult
             ? harvestResult.submitted > 0 || harvestResult.annotations > 0
@@ -259,10 +241,10 @@ export default function HomePage() {
               : "Harvest complete · no qualifying proposals or outcome signals found"
             : harvestMeta?.last_run_ts
             ? `Last harvest ${timeAgo(harvestMeta.last_run_ts)} · ${harvestMeta.last_submitted ?? 0} proposals surfaced`
-            : "Surface candidate decisions from recent agent session files"}
+            : "Surface candidate decisions from pasted conversations, imports, or local sessions"}
         </span>
         <Link href="/harvest" className="ml-auto text-xs text-[var(--muted)] hover:text-[var(--foreground)] shrink-0">
-          Harvest settings →
+          Harvest sources →
         </Link>
       </div>
 
@@ -422,9 +404,9 @@ export default function HomePage() {
           </div>
 
           <div className="space-y-1.5">
-            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Surface from session files</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Surface from agent work</p>
             <p className="text-xs text-[var(--muted)] leading-relaxed">
-              The <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page scans agent session files and routes candidate decisions into review.
+              The <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page accepts pasted conversations, imported files, local session scans, and API workflows.
             </p>
           </div>
         </div>
@@ -435,7 +417,7 @@ export default function HomePage() {
         <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-5 py-4 space-y-2">
           <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Keep surfacing proposals</p>
           <p className="text-xs text-[var(--muted)] leading-relaxed">
-            Use the <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page to scan agent session files and keep candidate decisions moving into review.
+            Use the <Link href="/harvest" className="text-[var(--accent)] hover:underline">Harvest</Link> page to paste, import, scan, or integrate agent work and keep candidate decisions moving into review.
             Injection sessions will appear on <Link href="/runs" className="text-[var(--accent)] hover:underline">Runs</Link> once you call{" "}
             <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GET /api/memory</code> or generate a <code className="font-mono bg-[var(--panel-2)] px-1 rounded">GOVERNED_CONTINUITY.md</code> from{" "}
             <Link href="/decisions" className="text-[var(--accent)] hover:underline">Decisions</Link>.
