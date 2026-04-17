@@ -387,7 +387,7 @@ export default function HarvestPage() {
               value={pastedText}
               onChange={(e) => setPastedText(e.target.value)}
               rows={12}
-              placeholder={"Paste an agent conversation, session summary, JSON messages array, or raw notes.\n\nUser: Keep roadmap planning out of the public repo.\nAssistant: Agreed. Future public-repo work should keep roadmap docs private unless explicitly approved."}
+              placeholder={"Paste an agent conversation, session summary, JSON messages array, or raw notes.\n\nUser: We had to restate the API error-code rule again today.\nAssistant: Agreed. Future API errors should include stable machine-readable codes so clients do not parse message text."}
               className="w-full rounded border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-[var(--foreground)] placeholder:text-[var(--muted)] font-mono leading-relaxed focus:border-[var(--brand-gold)] focus:outline-none resize-y"
             />
 

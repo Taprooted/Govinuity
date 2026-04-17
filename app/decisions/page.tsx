@@ -546,7 +546,7 @@ function GeneratePanel({ activeProject }: { activeProject: string | null }) {
               type="text"
               value={outputPath}
               onChange={(e) => handlePathChange(e.target.value)}
-              placeholder="/Users/you/project/.claude/GOVERNED_CONTINUITY.md"
+              placeholder="/path/to/project/.claude/GOVERNED_CONTINUITY.md"
               className="flex-1 rounded border border-[var(--border)] bg-[var(--panel-2)] px-2 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted)] focus:outline-none focus:ring-1 focus:ring-indigo-700 font-mono"
             />
             <button
