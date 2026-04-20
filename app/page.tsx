@@ -124,6 +124,85 @@ function SparkBar({ data }: { data: { date: string; count: number }[] }) {
   );
 }
 
+function LoopPulse({
+  lastHarvestCount,
+  pendingReview,
+  ratifiedCount,
+  runs30d,
+  outcomeSignals,
+}: {
+  lastHarvestCount: number | null;
+  pendingReview: number;
+  ratifiedCount: number;
+  runs30d: number;
+  outcomeSignals: number;
+}) {
+  const steps = [
+    {
+      label: "Surface",
+      value: lastHarvestCount ?? "—",
+      detail: lastHarvestCount === null ? "not run yet" : "last harvest",
+      href: "/harvest",
+      tone: "text-[var(--brand-coral)]",
+    },
+    {
+      label: "Review",
+      value: pendingReview,
+      detail: "pending",
+      href: "/review",
+      tone: pendingReview > 0 ? "text-[var(--brand-gold)]" : "text-[var(--muted)]",
+    },
+    {
+      label: "Ratify",
+      value: ratifiedCount,
+      detail: "approved",
+      href: "/decisions",
+      tone: ratifiedCount > 0 ? "text-[var(--brand-green)]" : "text-[var(--muted)]",
+    },
+    {
+      label: "Inject",
+      value: runs30d,
+      detail: "runs 30d",
+      href: "/runs",
+      tone: runs30d > 0 ? "text-indigo-400" : "text-[var(--muted)]",
+    },
+    {
+      label: "Measure",
+      value: outcomeSignals,
+      detail: "signals",
+      href: "/runs",
+      tone: outcomeSignals > 0 ? "text-[var(--brand-gold)]" : "text-[var(--muted)]",
+    },
+  ];
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Continuity loop</p>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">Surface → Review → Ratify → Inject → Measure</p>
+        </div>
+        <Link href="/harvest" className="text-xs text-[var(--accent)] hover:underline">Surface work →</Link>
+      </div>
+      <div className="grid gap-2 md:grid-cols-5">
+        {steps.map((step) => (
+          <Link
+            key={step.label}
+            href={step.href}
+            className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2.5 transition-colors hover:border-[var(--accent)]"
+          >
+            <p className={`text-xs font-semibold uppercase tracking-wider ${step.tone}`}>{step.label}</p>
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-xl font-semibold tabular-nums text-[var(--foreground)]">{step.value}</span>
+              <span className="text-xs text-[var(--muted)]">{step.detail}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 type HarvestMeta = { running: boolean; started_at?: string; last_run_ts?: string; last_submitted?: number; last_annotations?: number };
 
 export default function HomePage() {
@@ -216,6 +295,42 @@ export default function HomePage() {
     injRate != null && eligRate != null && eligRate > 0
       ? Math.round((injRate / eligRate) * 100)
       : null;
+  const failureSignals = (annotationsByType["context_restatement_required"] ?? 0)
+    + (annotationsByType["continuity_correction_required"] ?? 0)
+    + (annotationsByType["stale_leakage_detected"] ?? 0);
+  const outcomeSignals = Object.values(annotationsByType).reduce((sum, count) => sum + count, 0);
+  const runs30d = metrics?.runs.last_30d ?? 0;
+  const lastHarvestCount = harvestResult?.submitted ?? harvestMeta?.last_submitted ?? null;
+  const attentionItems = [
+    pendingReview > 0
+      ? {
+          label: `${pendingReview} candidate${pendingReview === 1 ? "" : "s"} waiting for review`,
+          href: "/review",
+          tone: "text-[var(--brand-gold)]",
+        }
+      : null,
+    failureSignals > 0
+      ? {
+          label: `${failureSignals} outcome signal${failureSignals === 1 ? "" : "s"} need interpretation`,
+          href: "/runs",
+          tone: "text-[var(--brand-coral)]",
+        }
+      : null,
+    ratifiedCount > 0 && runs30d === 0
+      ? {
+          label: "Ratified decisions exist, but no continuity runs have used them yet",
+          href: "/decisions",
+          tone: "text-[var(--muted)]",
+        }
+      : null,
+    !harvestMeta?.last_run_ts && pendingReview === 0
+      ? {
+          label: "No harvest run yet; surface candidates from recent work",
+          href: "/harvest",
+          tone: "text-[var(--muted)]",
+        }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; href: string; tone: string }>;
 
   return (
     <div className="space-y-6">
@@ -225,6 +340,42 @@ export default function HomePage() {
       />
 
       <ProjectBar activeProject={activeProject} onSelect={handleProjectSelect} />
+
+      <LoopPulse
+        lastHarvestCount={lastHarvestCount}
+        pendingReview={pendingReview}
+        ratifiedCount={ratifiedCount}
+        runs30d={runs30d}
+        outcomeSignals={outcomeSignals}
+      />
+
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Needs attention</p>
+            {attentionItems.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {attentionItems.map((item) => (
+                  <Link
+                    key={item.label}
+                    href={item.href}
+                    className={`rounded border border-[var(--border)] bg-[var(--panel-2)] px-2.5 py-1 text-xs hover:border-[var(--accent)] ${item.tone}`}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                No immediate review, correction, or injection gaps detected.
+              </p>
+            )}
+          </div>
+          <Link href="/runs" className="text-xs text-[var(--accent)] hover:underline">
+            Measure continuity →
+          </Link>
+        </div>
+      </div>
 
       {/* Harvest bar */}
       <div className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5">
