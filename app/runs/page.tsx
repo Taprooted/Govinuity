@@ -13,6 +13,14 @@ type DecisionRef = {
   status?: string | null;
 };
 
+type SignalReceipt = {
+  runId: string;
+  count: number;
+  targetLabel: string;
+  labels: string[];
+  ts: string;
+};
+
 const ANNOTATION_CONFIG: {
   type: AnnotationType;
   label: string;
@@ -40,6 +48,13 @@ const TONE_CLASS = {
   },
 };
 
+function signalSourceLabel(annotation: RunAnnotation) {
+  if (annotation.annotated_by === "harvest") return { label: "detected", cls: "text-[var(--brand-green)]" };
+  if (annotation.annotated_by === "human") return { label: "manual", cls: "text-[var(--brand-gold)]" };
+  if (annotation.annotated_by) return { label: annotation.annotated_by, cls: "text-[var(--muted)]" };
+  return { label: "manual", cls: "text-[var(--muted)]" };
+}
+
 function RunCard({
   run,
   annotations,
@@ -57,6 +72,7 @@ function RunCard({
   const [targetDecisionId, setTargetDecisionId] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const [receipt, setReceipt] = useState<SignalReceipt | null>(null);
 
   const injectedDecisions = run.injected_ids
     .map((id) => decisionById[id] ?? { id, title: id })
@@ -96,6 +112,7 @@ function RunCard({
           value: true,
           decision_id: targetDecisionId || null,
           note: note.trim() || null,
+          annotated_by: "human",
         }),
       });
       if (res.ok) {
@@ -106,6 +123,18 @@ function RunCard({
     setSaving(false);
     setSelected(new Set());
     setNote("");
+    if (created.length > 0) {
+      setReceipt({
+        runId: run.run_id,
+        count: created.length,
+        targetLabel: decisionLabel(targetDecisionId || null),
+        labels: created.map((annotation) => {
+          const cfg = ANNOTATION_CONFIG.find((c) => c.type === annotation.annotation_type);
+          return cfg?.label ?? annotation.annotation_type;
+        }),
+        ts: new Date().toISOString(),
+      });
+    }
     onAnnotated(run.run_id, created);
   }
 
@@ -133,7 +162,7 @@ function RunCard({
             <span className="text-[var(--muted)]">{run.excluded_count} excluded</span>
           )}
           {annotations.length > 0 && (
-            <span className="text-amber-400">{annotations.length} annotation{annotations.length > 1 ? "s" : ""}</span>
+            <span className="text-amber-400">{annotations.length} outcome signal{annotations.length > 1 ? "s" : ""}</span>
           )}
         </div>
       </button>
@@ -162,9 +191,12 @@ function RunCard({
 
           {/* Existing annotations */}
           {annotations.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wider text-[var(--muted)]">Outcome signals</p>
+              <div className="flex flex-wrap gap-1.5">
               {annotations.map((a) => {
                 const cfg = ANNOTATION_CONFIG.find((c) => c.type === a.annotation_type);
+                const source = signalSourceLabel(a);
                 return (
                   <span
                     key={a.annotation_id}
@@ -174,9 +206,13 @@ function RunCard({
                     {a.decision_id && (
                       <span className="ml-1 opacity-70">· {decisionLabel(a.decision_id)}</span>
                     )}
+                    <span className={`ml-1.5 border-l border-current/30 pl-1.5 ${source.cls}`}>
+                      {source.label}
+                    </span>
                   </span>
                 );
               })}
+              </div>
             </div>
           )}
 
@@ -199,10 +235,31 @@ function RunCard({
               onClick={() => setShowAnnotate(v => !v)}
               className="text-xs text-[var(--muted)] hover:text-[var(--foreground)] transition-colors"
             >
-              {showAnnotate ? "▾ Hide outcome annotation" : "▸ Annotate outcome"}
+              {showAnnotate ? "▾ Hide signal correction" : "▸ Correct or add signal"}
             </button>
             {showAnnotate && (
               <div className="mt-2.5 space-y-2.5">
+                {receipt && (
+                  <div className="rounded border border-[var(--brand-gold)] bg-[var(--brand-gold-soft)] px-3 py-2 text-xs">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-[var(--brand-gold)]">Manual signal recorded</span>
+                      <span className="text-[var(--muted)]">{timeAgo(receipt.ts)}</span>
+                      <button
+                        onClick={() => setReceipt(null)}
+                        className="ml-auto text-[var(--muted)] hover:text-[var(--foreground)]"
+                        aria-label="Dismiss signal receipt"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                    <p className="mt-1 text-[var(--foreground)]">
+                      {receipt.count} signal{receipt.count === 1 ? "" : "s"} added to {receipt.targetLabel}.
+                    </p>
+                    <p className="mt-0.5 text-[var(--muted)]">
+                      {receipt.labels.join(", ")} will be included in continuity measurement.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="mb-1 block text-xs text-[var(--muted)]">Applies to</label>
                   <div className="flex flex-wrap gap-1.5">
@@ -266,7 +323,7 @@ function RunCard({
                   disabled={saving || selected.size === 0}
                   className="rounded bg-indigo-700 px-3 py-1.5 text-xs text-white hover:bg-indigo-600 disabled:opacity-40"
                 >
-                  {saving ? "Saving…" : `Log outcome${selected.size > 0 ? ` (${selected.size})` : ""}`}
+                  {saving ? "Saving…" : `Record signal${selected.size > 0 ? ` (${selected.size})` : ""}`}
                 </button>
               </div>
             )}
