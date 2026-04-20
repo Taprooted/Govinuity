@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader, SectionCard, StackedBar, StatusBadge } from "../components/ui";
 import { directDecisionLink, contextRelated, inferTextRelation } from "../../lib/relations";
@@ -68,6 +69,14 @@ type FeedbackEntry = {
   body: string;
   severity: string;
   loop_id?: string;
+};
+
+type ReviewReceipt = {
+  id: string;
+  title: string;
+  action: "approved" | "deferred" | "rejected" | "approve" | "defer" | "reject";
+  kind: "proposal" | "queue";
+  ts: string;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -157,6 +166,62 @@ function contractBadge(p?: ProposedDecision | null) {
   };
 }
 
+function receiptCopy(receipt: ReviewReceipt) {
+  if (receipt.kind === "proposal") {
+    if (receipt.action === "approved") {
+      return {
+        badge: "Ratified",
+        text: "This candidate is now an approved decision and can become eligible future context through the memory API.",
+        tone: "border-green-800 bg-green-950/20 text-green-300",
+        targetHref: "/decisions",
+        targetLabel: "Open decision log",
+      };
+    }
+    if (receipt.action === "deferred") {
+      return {
+        badge: "Deferred",
+        text: "This candidate stays out of reusable context until it is reviewed again.",
+        tone: "border-yellow-800 bg-yellow-950/20 text-yellow-300",
+        targetHref: "/review",
+        targetLabel: "Continue review",
+      };
+    }
+    return {
+      badge: "Rejected",
+      text: "This candidate was kept in history but excluded from future injection.",
+      tone: "border-red-800 bg-red-950/20 text-red-300",
+      targetHref: "/review",
+      targetLabel: "Continue review",
+    };
+  }
+
+  if (receipt.action === "approve") {
+    return {
+      badge: "Approved",
+      text: "This review-queue signal was converted into an approved decision.",
+      tone: "border-green-800 bg-green-950/20 text-green-300",
+      targetHref: "/decisions",
+      targetLabel: "Open decision log",
+    };
+  }
+  if (receipt.action === "defer") {
+    return {
+      badge: "Deferred",
+      text: "This review-queue signal was held for later and not injected.",
+      tone: "border-yellow-800 bg-yellow-950/20 text-yellow-300",
+      targetHref: "/review",
+      targetLabel: "Continue review",
+    };
+  }
+  return {
+    badge: "Rejected",
+    text: "This review-queue signal was handled and kept out of reusable context.",
+    tone: "border-red-800 bg-red-950/20 text-red-300",
+    targetHref: "/review",
+    targetLabel: "Continue review",
+  };
+}
+
 // Sort by review risk: hard-to-reverse proposals first, then conflicts, then confidence.
 function sortProposals(proposals: ProposedDecision[]): ProposedDecision[] {
   return [...proposals].sort((a, b) => {
@@ -187,6 +252,7 @@ export default function ReviewPage() {
   const [note, setNote] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [receipt, setReceipt] = useState<ReviewReceipt | null>(null);
 
   async function load() {
     setLoadError(null);
@@ -217,13 +283,25 @@ export default function ReviewPage() {
   }, [proposals]);
 
   async function actOnProposal(id: string, status: "approved" | "rejected" | "deferred") {
+    const proposal = proposals.find((p) => p.id === id);
     setProposalActing(id);
-    await fetch("/api/decisions", {
+    const res = await fetch("/api/decisions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, status, ratified_by: status === "approved" ? "govinuity-review" : undefined }),
     });
     setProposalActing(null);
+    if (!res.ok) {
+      setLoadError("Could not update proposal status");
+      return;
+    }
+    setReceipt({
+      id,
+      action: status,
+      kind: "proposal",
+      title: proposal?.title ?? proposal?.summary_for_human ?? proposal?.body.split("\n")[0].slice(0, 96) ?? id,
+      ts: new Date().toISOString(),
+    });
     // Advance to next proposal
     const idx = proposals.findIndex((p) => p.id === id);
     const next = proposals[idx + 1] ?? proposals[idx - 1] ?? null;
@@ -277,11 +355,24 @@ export default function ReviewPage() {
 
   // Review queue
   async function decide(id: string, decision: string) {
+    const item = items.find((i) => i.original_entry.id === id);
     setSubmitting(true);
-    await fetch("/api/review-queue", {
+    const res = await fetch("/api/review-queue", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, decision, note: note || undefined }),
+    });
+    if (!res.ok) {
+      setSubmitting(false);
+      setLoadError("Could not update review item");
+      return;
+    }
+    setReceipt({
+      id,
+      action: decision as ReviewReceipt["action"],
+      kind: "queue",
+      title: item?.original_entry.body.slice(0, 96) ?? id,
+      ts: new Date().toISOString(),
     });
     setActiveId(null);
     setNote("");
@@ -339,6 +430,7 @@ export default function ReviewPage() {
   const selectedContractStatus = contractStatus(selectedProposal);
   const selectedContractBadge = contractBadge(selectedProposal);
   const showContractDetails = selectedProposal && selectedContractStatus !== "complete";
+  const receiptDetails = receipt ? receiptCopy(receipt) : null;
 
   return (
     <div className="space-y-10">
@@ -346,6 +438,33 @@ export default function ReviewPage() {
         title="Review"
         description="Ratify proposed continuity objects and assess incoming signals."
       />
+
+      {receipt && receiptDetails && (
+        <div className={`rounded-lg border px-4 py-3 ${receiptDetails.tone}`}>
+          <div className="flex flex-wrap items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <span className="rounded border border-current/30 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+                  {receiptDetails.badge}
+                </span>
+                <span className="text-[10px] text-current/70">{timeAgo(receipt.ts)}</span>
+              </div>
+              <p className="truncate text-sm font-medium text-[var(--foreground)]">{receipt.title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-current/80">{receiptDetails.text}</p>
+            </div>
+            <Link href={receiptDetails.targetHref} className="shrink-0 rounded border border-current/30 px-2.5 py-1 text-xs hover:bg-current/10">
+              {receiptDetails.targetLabel}
+            </Link>
+            <button
+              onClick={() => setReceipt(null)}
+              className="shrink-0 text-xs text-current/60 hover:text-current"
+              aria-label="Dismiss receipt"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Proposals: primary split-view ─────────────────────────────── */}
       {proposals.length === 0 ? (

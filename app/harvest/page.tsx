@@ -558,18 +558,49 @@ export default function HarvestPage() {
         )}
 
         {result && (
-          <div className="space-y-1.5 pt-3 border-t border-[var(--border)]">
-            {result.submitted > 0 || result.annotations > 0 ? (
-              <p className="text-xs text-[var(--brand-green)]">
-                Harvest complete · {result.submitted} proposal{result.submitted !== 1 ? "s" : ""} surfaced to{" "}
-                <Link href="/review" className="underline hover:opacity-80">Review</Link>
-                {" "}· {result.annotations} outcome signal{result.annotations !== 1 ? "s" : ""} logged
-              </p>
-            ) : (
-              <p className="text-xs text-[var(--muted)]">
-                Harvest complete · no qualifying proposals were found. Try a denser transcript or a different scan scope.
-              </p>
-            )}
+          <div className="space-y-3 pt-3 border-t border-[var(--border)]">
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">Harvest receipt</p>
+                  <p className="mt-0.5 text-sm font-medium text-[var(--foreground)]">
+                    {result.submitted > 0 || result.annotations > 0
+                      ? "Surface pass completed."
+                      : "Surface pass completed with no qualifying candidates."}
+                  </p>
+                </div>
+                <span className="rounded border border-[var(--border)] px-2 py-1 text-[10px] text-[var(--muted)]">
+                  {sourceMode === "paste" ? `${effectiveSource} · ${artifactType.replace(/_/g, " ")}` : sourcePresetLabel(sourceOptions, sourcePreset)}
+                </span>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Surfaced</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--foreground)]">{result.submitted}</p>
+                  <p className="text-[11px] text-[var(--muted)]">candidate decision{result.submitted === 1 ? "" : "s"}</p>
+                </div>
+                <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Logged</p>
+                  <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--foreground)]">{result.annotations}</p>
+                  <p className="text-[11px] text-[var(--muted)]">outcome signal{result.annotations === 1 ? "" : "s"}</p>
+                </div>
+                <div className="rounded border border-[var(--border)] bg-[var(--panel-2)] px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Next</p>
+                  {result.submitted > 0 ? (
+                    <Link href="/review" className="mt-1 inline-block text-sm font-medium text-[var(--accent)] hover:underline">
+                      Review surfaced candidates →
+                    </Link>
+                  ) : result.annotations > 0 ? (
+                    <Link href="/runs" className="mt-1 inline-block text-sm font-medium text-[var(--accent)] hover:underline">
+                      Inspect run signals →
+                    </Link>
+                  ) : (
+                    <p className="mt-1 text-sm text-[var(--muted)]">Try a denser artifact or broader scan.</p>
+                  )}
+                </div>
+              </div>
+            </div>
             {result.output.length > 0 && (
               <pre className="rounded bg-[var(--panel-2)] border border-[var(--border)] p-2 text-xs text-[var(--muted)] leading-relaxed overflow-x-auto max-h-48">{result.output.join("\n")}</pre>
             )}
