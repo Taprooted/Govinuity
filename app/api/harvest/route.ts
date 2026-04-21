@@ -206,18 +206,38 @@ function isHarvestGeneratedSession(filePath: string): boolean {
   }
 }
 
-function collectJsonlFiles(dir: string): string[] {
+type SessionFileStat = {
+  path: string;
+  mtimeMs: number;
+  generated: boolean;
+};
+
+function collectJsonlFileStats(dir: string): SessionFileStat[] {
   if (!fs.existsSync(/* turbopackIgnore: true */ dir)) return [];
   const entries = fs.readdirSync(/* turbopackIgnore: true */ dir, { withFileTypes: true });
-  const files: string[] = [];
+  const files = new Map<string, SessionFileStat>();
+
+  const addFile = (filePath: string) => {
+    if (!filePath.endsWith(".jsonl") || files.has(filePath)) return;
+    try {
+      const stat = fs.statSync(/* turbopackIgnore: true */ filePath);
+      files.set(filePath, {
+        path: filePath,
+        mtimeMs: stat.mtimeMs,
+        generated: isHarvestGeneratedSession(filePath),
+      });
+    } catch {
+      // Ignore unreadable files.
+    }
+  };
 
   for (const entry of entries) {
     const full = path.join(/* turbopackIgnore: true */ dir, entry.name);
-    if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(full);
+    if (entry.isFile()) addFile(full);
     if (entry.isDirectory()) {
       try {
         for (const child of fs.readdirSync(/* turbopackIgnore: true */ full, { withFileTypes: true })) {
-          if (child.isFile() && child.name.endsWith(".jsonl")) files.push(path.join(/* turbopackIgnore: true */ full, child.name));
+          if (child.isFile()) addFile(path.join(/* turbopackIgnore: true */ full, child.name));
         }
       } catch {
         // Ignore unreadable project folders.
@@ -225,22 +245,30 @@ function collectJsonlFiles(dir: string): string[] {
     }
   }
 
-  return Array.from(new Set(files));
+  return Array.from(files.values());
 }
 
 function preflightSessionDir(sessionDir: string, preset: SourcePreset) {
   const resolved = expandHome(sessionDir);
   const exists = fs.existsSync(/* turbopackIgnore: true */ resolved);
-  const files = exists ? collectJsonlFiles(resolved) : [];
-  const generated = files.filter(isHarvestGeneratedSession);
-  const usable = files.filter((f) => !generated.includes(f));
-  const newest = usable
-    .map((file) => ({ file, mtime: fs.statSync(/* turbopackIgnore: true */ file).mtimeMs }))
-    .sort((a, b) => b.mtime - a.mtime)[0];
+  const files = exists ? collectJsonlFileStats(resolved) : [];
+  let usableCount = 0;
+  let generatedCount = 0;
+  let newestUsable: SessionFileStat | null = null;
+
+  for (const file of files) {
+    if (file.generated) {
+      generatedCount += 1;
+      continue;
+    }
+    usableCount += 1;
+    if (!newestUsable || file.mtimeMs > newestUsable.mtimeMs) newestUsable = file;
+  }
+
   const warnings: string[] = [];
 
   if (!exists) warnings.push("This directory does not exist.");
-  if (exists && usable.length === 0 && generated.length > 0) warnings.push("Only harvest-generated sessions were found.");
+  if (exists && usableCount === 0 && generatedCount > 0) warnings.push("Only harvest-generated sessions were found.");
   if (exists && files.length === 0) warnings.push("No JSONL session files were found.");
   if (preset === "parent") warnings.push("This source may include adjacent projects from the parent folder.");
   if (preset === "all") warnings.push("This is a broad scan and may include unrelated project work.");
@@ -249,10 +277,10 @@ function preflightSessionDir(sessionDir: string, preset: SourcePreset) {
     exists,
     resolved: tildify(resolved),
     totalFiles: files.length,
-    usableFiles: usable.length,
-    harvestGeneratedFiles: generated.length,
-    newestUsableFile: newest ? path.basename(newest.file) : null,
-    newestUsableAt: newest ? new Date(newest.mtime).toISOString() : null,
+    usableFiles: usableCount,
+    harvestGeneratedFiles: generatedCount,
+    newestUsableFile: newestUsable ? path.basename(newestUsable.path) : null,
+    newestUsableAt: newestUsable ? new Date(newestUsable.mtimeMs).toISOString() : null,
     warnings,
   };
 }

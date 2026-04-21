@@ -410,17 +410,29 @@ def jaccard(a: str, b: str) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
+def jaccard_sets(sa: set[str], sb: set[str]) -> float:
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
 def dedupe_record(title: str = "", summary: str = "", body: str = "", proposal_class: str = "", scope: str = "") -> dict:
     title = title or ""
     summary = summary or ""
     body = body or ""
+    body_excerpt = body[:500]
+    combined = " ".join(part for part in [title, summary, body[:240]] if part)
     return {
         "title": title,
         "summary": summary,
-        "body": body[:500],
+        "body": body_excerpt,
         "proposal_class": proposal_class or "",
         "scope": scope or "",
-        "combined": " ".join(part for part in [title, summary, body[:240]] if part),
+        "combined": combined,
+        "title_tokens": token_set(title),
+        "summary_tokens": token_set(summary),
+        "body_tokens": token_set(body_excerpt),
+        "combined_tokens": token_set(combined),
     }
 
 
@@ -432,6 +444,37 @@ def candidate_dedupe_record(candidate: dict) -> dict:
         proposal_class=candidate.get("proposal_class", ""),
         scope=candidate.get("scope", ""),
     )
+
+
+def dedupe_record_keys(record: dict) -> set[tuple[str, str]]:
+    class_scope = f"{record.get('proposal_class', '')}|{record.get('scope', '')}"
+    tokens = record.get("title_tokens") or record.get("summary_tokens") or record.get("combined_tokens") or set()
+    keys = {(class_scope, "*"), ("*", "*")}
+    for token in tokens:
+        keys.add((class_scope, token))
+        keys.add(("*", token))
+    return keys
+
+
+def build_dedupe_index(records: list[dict]) -> dict[tuple[str, str], list[dict]]:
+    index: dict[tuple[str, str], list[dict]] = {}
+    for record in records:
+        for key in dedupe_record_keys(record):
+            index.setdefault(key, []).append(record)
+    return index
+
+
+def dedupe_match_pool(record: dict, index: dict[tuple[str, str], list[dict]]) -> list[dict]:
+    seen: set[int] = set()
+    matches: list[dict] = []
+    for key in dedupe_record_keys(record):
+        for existing in index.get(key, []):
+            ident = id(existing)
+            if ident in seen:
+                continue
+            seen.add(ident)
+            matches.append(existing)
+    return matches
 
 
 def load_existing_dedupe_records() -> list[dict]:
@@ -934,19 +977,20 @@ def consolidate_candidates(all_candidates: list[dict]) -> list[dict]:
 # ── Stage 3: Deduplication against existing decisions ─────────────────────────
 
 def candidate_similarity(candidate: dict, existing: dict) -> tuple[float, str]:
-    candidate_record = candidate_dedupe_record(candidate)
+    candidate_record = candidate if "combined_tokens" in candidate else candidate_dedupe_record(candidate)
+    existing_record = existing if "combined_tokens" in existing else candidate_dedupe_record(existing)
     comparisons = [
-        ("title", jaccard(candidate_record["title"], existing.get("title", ""))),
-        ("summary", jaccard(candidate_record["summary"], existing.get("summary", ""))),
-        ("body", jaccard(candidate_record["body"], existing.get("body", ""))),
-        ("combined", jaccard(candidate_record["combined"], existing.get("combined", ""))),
+        ("title", jaccard_sets(candidate_record["title_tokens"], existing_record["title_tokens"])),
+        ("summary", jaccard_sets(candidate_record["summary_tokens"], existing_record["summary_tokens"])),
+        ("body", jaccard_sets(candidate_record["body_tokens"], existing_record["body_tokens"])),
+        ("combined", jaccard_sets(candidate_record["combined_tokens"], existing_record["combined_tokens"])),
     ]
 
     # Same class/scope is weak evidence by itself, but enough to raise close text matches.
     class_scope_bonus = 0.0
-    if candidate_record["proposal_class"] and candidate_record["proposal_class"] == existing.get("proposal_class"):
+    if candidate_record["proposal_class"] and candidate_record["proposal_class"] == existing_record.get("proposal_class"):
         class_scope_bonus += 0.04
-    if candidate_record["scope"] and candidate_record["scope"] == existing.get("scope"):
+    if candidate_record["scope"] and candidate_record["scope"] == existing_record.get("scope"):
         class_scope_bonus += 0.02
 
     label, score = max(comparisons, key=lambda item: item[1])
@@ -964,13 +1008,14 @@ def is_duplicate_candidate(candidate: dict, existing: dict) -> tuple[bool, float
     return False, score, field
 
 
-def dedupe_against_existing(candidates: list[dict], existing_records: list[dict]) -> list[dict]:
+def dedupe_against_existing(candidates: list[dict], existing_index: dict[tuple[str, str], list[dict]]) -> list[dict]:
     kept = []
     for c in candidates:
+        candidate_record = candidate_dedupe_record(c)
         probe = c.get("title") or c.get("summary_for_human") or c.get("body", "")[:80]
         best = (False, 0.0, "none", None)
-        for existing in existing_records:
-            duplicate, score, field = is_duplicate_candidate(c, existing)
+        for existing in dedupe_match_pool(candidate_record, existing_index):
+            duplicate, score, field = is_duplicate_candidate(candidate_record, existing)
             if score > best[1]:
                 best = (duplicate, score, field, existing)
 
@@ -984,15 +1029,19 @@ def dedupe_against_existing(candidates: list[dict], existing_records: list[dict]
 
 def dedupe_within_batch(candidates: list[dict]) -> list[dict]:
     kept = []
+    kept_index: dict[tuple[str, str], list[dict]] = {}
     for c in candidates:
+        candidate_record = candidate_dedupe_record(c)
         duplicate = False
-        for k in kept:
-            is_dup, _, _ = is_duplicate_candidate(c, candidate_dedupe_record(k))
+        for existing in dedupe_match_pool(candidate_record, kept_index):
+            is_dup, _, _ = is_duplicate_candidate(candidate_record, existing)
             if is_dup:
                 duplicate = True
                 break
         if not duplicate:
             kept.append(c)
+            for key in dedupe_record_keys(candidate_record):
+                kept_index.setdefault(key, []).append(candidate_record)
     return kept
 
 
@@ -1297,6 +1346,7 @@ def main():
 
     watermark = load_watermark()
     existing_records = load_existing_dedupe_records()
+    existing_index = build_dedupe_index(existing_records)
     log(f"Loaded {len(existing_records)} existing decision records for dedup")
 
     since_ts: Optional[str] = None
@@ -1325,7 +1375,7 @@ def main():
         raw_count, final_count, candidates, signals = harvest_text_input(text, source_label, artifact_type)
 
         all_candidates = dedupe_within_batch(candidates)
-        all_candidates = dedupe_against_existing(all_candidates, existing_records)
+        all_candidates = dedupe_against_existing(all_candidates, existing_index)
         all_signals = signals
 
         log(f"\nFinal candidate count: {len(all_candidates)}, correction signals: {len(all_signals)}")
@@ -1408,7 +1458,7 @@ def main():
     log(f"Batch dedup: {before_dedup} → {len(all_candidates)}")
 
     before_existing = len(all_candidates)
-    all_candidates = dedupe_against_existing(all_candidates, existing_records)
+    all_candidates = dedupe_against_existing(all_candidates, existing_index)
     log(f"Existing dedup: {before_existing} → {len(all_candidates)}")
 
     all_signals = [s for ss in session_signals for s in ss["signals"]]
