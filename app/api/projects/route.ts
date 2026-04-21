@@ -1,11 +1,11 @@
 import fs from "fs";
 import path from "path";
-import { aggregateProject, getProjects, PROJECTS_PATH } from "../../../lib/projects";
+import { aggregateProjects, getProjects, PROJECTS_PATH } from "../../../lib/projects";
 
 export async function GET() {
   const projects = getProjects();
   return Response.json({
-    projects: projects.map((project) => aggregateProject(project)),
+    projects: aggregateProjects(projects),
   });
 }
 
