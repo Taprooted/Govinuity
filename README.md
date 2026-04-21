@@ -75,8 +75,30 @@ npm run dev
 Open [http://localhost:3000](http://localhost:3000).
 
 The `data/` directory and database are created automatically on first run.
+Govinuity defaults to `local` deployment mode and only accepts loopback requests in that mode.
 
 > **Trusted-local only.** Govinuity has no authentication. Run it on your local machine or a private, trusted environment. Do not expose it to shared networks or the public internet.
+
+## Deployment modes
+
+### Local mode
+
+- Default mode: `GOVINUITY_MODE=local`
+- Accepts only `localhost`, `127.0.0.1`, and IPv6 loopback requests
+- Intended for single-operator local-first use
+
+### Shared mode
+
+- Set `GOVINUITY_MODE=shared`
+- Requires `GOVINUITY_API_KEY` for all `/api/*` requests
+- Browser page routes remain reachable, but shared mode is still an infrastructure boundary, not a full multi-user auth system
+
+Example:
+
+```bash
+GOVINUITY_MODE=shared
+GOVINUITY_API_KEY=replace-this-with-a-long-random-secret
+```
 
 For a quick tour, use **Load example data** on the dashboard. That seeds proposed and ratified decisions so you can inspect the Review, Decisions, and Runs surfaces without first wiring in an agent workflow.
 

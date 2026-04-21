@@ -4,6 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import type { GovinuityMode } from "../../lib/deployment-mode";
 
 export function cx(...parts: Array<string | false | null | undefined>) {
   return parts.filter(Boolean).join(" ");
@@ -395,7 +396,11 @@ export function QuickLog({ projects }: { projects: ProjectSummary[] }) {
   );
 }
 
-export function SidebarNav() {
+export function SidebarNav({
+  mode,
+}: {
+  mode: GovinuityMode;
+}) {
   const pathname = usePathname();
   const [counts, setCounts] = useState<Record<string, number>>({});
 
@@ -408,6 +413,10 @@ export function SidebarNav() {
 
   const proposalsCount = counts["proposals"] ?? 0;
   const decisionsCount = counts["decisions_total"] ?? 0;
+  const modeText =
+    mode === "shared"
+      ? "Shared mode · API routes require GOVINUITY_API_KEY"
+      : "Local mode · localhost requests only";
 
   const navItems = [
     { href: "/",          label: "Dashboard", hint: "home",    count: 0 },
@@ -467,8 +476,9 @@ export function SidebarNav() {
       </nav>
 
       <div className="px-4 py-3 border-t border-[var(--border)]">
-        <p className="text-[10px] leading-relaxed text-[var(--muted)] opacity-60">
-          Trusted local use only · no authentication
+        <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">{mode === "shared" ? "Shared mode" : "Local mode"}</p>
+        <p className="mt-1 text-[10px] leading-relaxed text-[var(--muted)] opacity-80">
+          {modeText}
         </p>
       </div>
     </aside>
