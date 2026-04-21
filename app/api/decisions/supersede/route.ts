@@ -3,12 +3,22 @@ import type { DecisionV2, DecisionScope, TransferTier } from "../../../../lib/ut
 
 const VALID_SCOPES = new Set<DecisionScope>(["global","project","app","task","session","agent"]);
 const VALID_TIERS = new Set<TransferTier>(["always","by_project","explicit","history_only","re_ratify"]);
+const MAX_BODY_LENGTH = 50_000;
+const MAX_LONG_TEXT_LENGTH = 10_000;
+const MAX_SHORT_TEXT_LENGTH = 500;
 
 function validateIsoDate(value: unknown, field: string): string | null {
   if (value == null) return null;
   if (typeof value !== "string") return `${field} must be a string`;
   const d = new Date(value);
   if (isNaN(d.getTime())) return `${field} is not a valid ISO date: "${value}"`;
+  return null;
+}
+
+function validateMaxLength(value: unknown, field: string, max: number): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return `${field} must be a string`;
+  if (value.length > max) return `${field} must be ${max} characters or fewer`;
   return null;
 }
 
@@ -40,6 +50,9 @@ export async function POST(request: Request) {
   if (!bodyText?.trim()) {
     return Response.json({ error: "body is required" }, { status: 400 });
   }
+  if (bodyText.trim().length > MAX_BODY_LENGTH) {
+    return Response.json({ error: `body must be ${MAX_BODY_LENGTH} characters or fewer` }, { status: 400 });
+  }
   if (!supersedes || !Array.isArray(supersedes) || supersedes.length === 0) {
     return Response.json({ error: "supersedes must be a non-empty array of decision IDs" }, { status: 400 });
   }
@@ -65,6 +78,16 @@ export async function POST(request: Request) {
   if (euErr) return Response.json({ error: euErr }, { status: 400 });
   const raErr = validateIsoDate(review_after, "review_after");
   if (raErr) return Response.json({ error: raErr }, { status: 400 });
+  const rationaleErr = validateMaxLength(rationale, "rationale", MAX_LONG_TEXT_LENGTH);
+  if (rationaleErr) return Response.json({ error: rationaleErr }, { status: 400 });
+  const reuseErr = validateMaxLength(reuse_instructions, "reuse_instructions", MAX_LONG_TEXT_LENGTH);
+  if (reuseErr) return Response.json({ error: reuseErr }, { status: 400 });
+  const revisitErr = validateMaxLength(revisit_trigger, "revisit_trigger", MAX_SHORT_TEXT_LENGTH);
+  if (revisitErr) return Response.json({ error: revisitErr }, { status: 400 });
+  const noteErr = validateMaxLength(note, "note", MAX_LONG_TEXT_LENGTH);
+  if (noteErr) return Response.json({ error: noteErr }, { status: 400 });
+  const sourceAgentErr = validateMaxLength(source_agent, "source_agent", 120);
+  if (sourceAgentErr) return Response.json({ error: sourceAgentErr }, { status: 400 });
 
   const now = new Date().toISOString();
   const cleanBody = bodyText.trim();

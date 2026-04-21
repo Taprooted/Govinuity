@@ -5,10 +5,12 @@ import { readJsonlWithWarnings } from "../../../lib/jsonl";
 import { filterByProject, getProjectBySlug, withResolvedProject } from "../../../lib/projects";
 
 const FEEDBACK_PATH = path.join(PATHS.metaDir, "feedback.jsonl");
+const MAX_QUERY_LIMIT = 500;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const limit = parseInt(searchParams.get("limit") ?? "30", 10) || 30;
+  const requestedLimit = parseInt(searchParams.get("limit") ?? "30", 10) || 30;
+  const limit = Math.max(1, Math.min(MAX_QUERY_LIMIT, requestedLimit));
   const type = searchParams.get("type");
   const context = searchParams.get("context");
   const projectSlug = searchParams.get("project");
@@ -50,6 +52,7 @@ export async function POST(request: Request) {
     fs.appendFileSync(FEEDBACK_PATH, JSON.stringify(entry) + "\n", "utf-8");
     return Response.json({ ok: true, entry });
   } catch (error) {
-    return Response.json({ error: String((error as Error).message || error) }, { status: 500 });
+    console.error(error);
+    return Response.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -4,6 +4,7 @@ import {
   generateAnnotationId,
   ANNOTATION_TYPES,
 } from "../../../lib/annotation-log";
+import { internalServerError } from "../../../lib/api-errors";
 import type { AnnotationType } from "../../../lib/annotation-log";
 
 export async function POST(request: Request) {
@@ -38,10 +39,7 @@ export async function POST(request: Request) {
     logAnnotation(annotation);
     return Response.json({ ok: true, annotation });
   } catch (error) {
-    return Response.json(
-      { error: String((error as Error).message || error) },
-      { status: 500 },
-    );
+    return internalServerError(error);
   }
 }
 

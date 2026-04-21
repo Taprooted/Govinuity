@@ -1,4 +1,5 @@
 import { getDb, parseDecisionRow, serializeDecisionFields } from "../../../lib/db";
+import { internalServerError } from "../../../lib/api-errors";
 import { updateDecisionFollowUpState, updateDecisionFields, getExpiringDecisions } from "../../../lib/decision-write";
 import { filterByProject, getProjectBySlug, withResolvedProject } from "../../../lib/projects";
 import { normalizeDecisionStatus } from "../../../lib/utils";
@@ -11,6 +12,10 @@ const VALID_SCOPES = new Set<DecisionScope>(["global","project","app","task","se
 const VALID_TIERS = new Set<TransferTier>(["always","by_project","explicit","history_only","re_ratify"]);
 const VALID_WRITE_STATUSES = new Set(["proposed","under_review","approved","rejected","deferred"]);
 const VALID_SOURCE_TYPES = new Set(["review", "direct", "agent", "import", "harvest", "manual"]);
+const MAX_QUERY_LIMIT = 500;
+const MAX_BODY_LENGTH = 50_000;
+const MAX_LONG_TEXT_LENGTH = 10_000;
+const MAX_SHORT_TEXT_LENGTH = 500;
 
 function validateIsoDate(value: unknown, field: string): string | null {
   if (value == null) return null; // optional field — absence is fine
@@ -24,6 +29,13 @@ function validateConfidence(value: unknown): string | null {
   if (value == null) return null;
   const n = Number(value);
   if (isNaN(n) || n < 0 || n > 1) return `confidence must be a number between 0 and 1, got: ${value}`;
+  return null;
+}
+
+function validateMaxLength(value: unknown, field: string, max: number): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return `${field} must be a string`;
+  if (value.length > max) return `${field} must be ${max} characters or fewer`;
   return null;
 }
 
@@ -107,7 +119,8 @@ function normalizeEntry(raw: any) {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const limit = parseInt(searchParams.get("limit") ?? "50", 10) || 50;
+  const requestedLimit = parseInt(searchParams.get("limit") ?? "50", 10) || 50;
+  const limit = Math.max(1, Math.min(MAX_QUERY_LIMIT, requestedLimit));
   const context = searchParams.get("context");
   const decision = searchParams.get("decision"); // v1 compat filter
   const status = searchParams.get("status");     // v2 filter
@@ -121,6 +134,46 @@ export async function GET(request: Request) {
   }
 
   const db = getDb();
+  const statusFilter = status ?? decision;
+  const project = projectSlug ? getProjectBySlug(projectSlug) : null;
+
+  if (!context && (!projectSlug || project)) {
+    let sql = "SELECT * FROM decisions";
+    const params: unknown[] = [];
+    const where: string[] = [];
+
+    if (statusFilter) {
+      where.push("status = ?");
+      params.push(statusFilter);
+    }
+
+    if (project) {
+      where.push(`(
+        project_id = ?
+        OR scope_ref = ?
+        OR EXISTS (
+          SELECT 1
+          FROM json_each(COALESCE(context_keys, '[]'))
+          WHERE json_each.value = ?
+        )
+      )`);
+      params.push(project.slug, project.slug, `project:${project.slug}`);
+    }
+
+    if (where.length > 0) {
+      sql += ` WHERE ${where.join(" AND ")}`;
+    }
+
+    sql += " ORDER BY created_at DESC LIMIT ?";
+    params.push(limit);
+
+    const entries = (db.prepare(sql).all(...params) as Record<string, any>[])
+      .map(parseDecisionRow)
+      .map(normalizeEntry);
+
+    return Response.json({ entries, warnings: [] });
+  }
+
   const rawEntries = (db.prepare("SELECT * FROM decisions").all() as Record<string, any>[]).map(parseDecisionRow);
   let entries = rawEntries.map(normalizeEntry);
   const warnings: string[] = [];
@@ -128,7 +181,6 @@ export async function GET(request: Request) {
   // Legacy: context query param filters by stored `context` field on old entries only
   if (context) entries = entries.filter((e) => e.context === context);
 
-  const statusFilter = status ?? decision;
   if (statusFilter) entries = entries.filter((e) => e.status === statusFilter || e.decision === statusFilter);
 
   if (projectSlug) {
@@ -156,6 +208,9 @@ export async function POST(request: Request) {
 
   if (!bodyText || !statusRaw) {
     return Response.json({ error: "body (or proposal) and status (or decision) are required" }, { status: 400 });
+  }
+  if (bodyText.length > MAX_BODY_LENGTH) {
+    return Response.json({ error: `body must be ${MAX_BODY_LENGTH} characters or fewer` }, { status: 400 });
   }
 
   const normalizedStatus = normalizeDecisionStatus(statusRaw) ?? statusRaw;
@@ -186,6 +241,20 @@ export async function POST(request: Request) {
   if (euErr) return Response.json({ error: euErr }, { status: 400 });
   const raErr = validateIsoDate(body.review_after, "review_after");
   if (raErr) return Response.json({ error: raErr }, { status: 400 });
+  const rationaleErr = validateMaxLength(body.rationale, "rationale", MAX_LONG_TEXT_LENGTH);
+  if (rationaleErr) return Response.json({ error: rationaleErr }, { status: 400 });
+  const summaryErr = validateMaxLength(body.summary_for_human, "summary_for_human", MAX_SHORT_TEXT_LENGTH);
+  if (summaryErr) return Response.json({ error: summaryErr }, { status: 400 });
+  const surfacedErr = validateMaxLength(body.why_surfaced, "why_surfaced", MAX_SHORT_TEXT_LENGTH);
+  if (surfacedErr) return Response.json({ error: surfacedErr }, { status: 400 });
+  const reuseErr = validateMaxLength(body.reuse_instructions, "reuse_instructions", MAX_LONG_TEXT_LENGTH);
+  if (reuseErr) return Response.json({ error: reuseErr }, { status: 400 });
+  const revisitErr = validateMaxLength(body.revisit_trigger, "revisit_trigger", MAX_SHORT_TEXT_LENGTH);
+  if (revisitErr) return Response.json({ error: revisitErr }, { status: 400 });
+  const noteErr = validateMaxLength(note, "note", MAX_LONG_TEXT_LENGTH);
+  if (noteErr) return Response.json({ error: noteErr }, { status: 400 });
+  const proposalClassErr = validateMaxLength(body.proposal_class, "proposal_class", 120);
+  if (proposalClassErr) return Response.json({ error: proposalClassErr }, { status: 400 });
 
   const now = new Date().toISOString();
   const titleRaw = (body.title?.trim() || bodyText.split("\n")[0]).trim();
@@ -293,7 +362,7 @@ export async function PATCH(request: Request) {
       const result = updateDecisionFields({ id, ts, fields });
       return Response.json(result);
     } catch (error) {
-      return Response.json({ error: String((error as Error).message || error) }, { status: 500 });
+      return internalServerError(error);
     }
   }
 
@@ -306,7 +375,7 @@ export async function PATCH(request: Request) {
       const result = updateDecisionFollowUpState({ id, ts, followUpState: body.follow_up_state });
       return Response.json(result);
     } catch (error) {
-      return Response.json({ error: String((error as Error).message || error) }, { status: 500 });
+      return internalServerError(error);
     }
   }
 
@@ -336,6 +405,6 @@ export async function PATCH(request: Request) {
     const result = updateDecisionFields({ id, ts, fields });
     return Response.json(result);
   } catch (error) {
-    return Response.json({ error: String((error as Error).message || error) }, { status: 500 });
+    return internalServerError(error);
   }
 }
