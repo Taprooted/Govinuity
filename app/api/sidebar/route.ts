@@ -3,38 +3,42 @@ import { getDb } from "../../../lib/db";
 export async function GET() {
   const db = getDb();
 
-  const review = (db.prepare("SELECT reviewed, project, original_entry FROM review_queue").all() as Record<string, any>[])
-    .map((r) => ({
-      ...r,
-      reviewed: r.reviewed === 1,
-      original_entry: typeof r.original_entry === "string" ? JSON.parse(r.original_entry) : r.original_entry,
-    }));
+  const pendingReview = (db.prepare(
+    "SELECT COUNT(*) AS n FROM review_queue WHERE reviewed = 0",
+  ).get() as { n: number }).n;
 
-  const decisions = db.prepare("SELECT status, follow_up_state FROM decisions").all() as Record<string, any>[];
+  const highPriorityReview = (db.prepare(`
+    SELECT COUNT(*) AS n
+    FROM review_queue
+    WHERE reviewed = 0
+      AND json_extract(original_entry, '$.severity') = 'high'
+  `).get() as { n: number }).n;
 
-  const pendingItems = review.filter((item) => !item.reviewed);
-  const pendingReview = pendingItems.length;
-  const highPriorityReview = pendingItems.filter((item) => item.original_entry?.severity === "high").length;
+  const decisionCounts = db.prepare(`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(*) FILTER (WHERE follow_up_state = 'open') AS open_follow_ups,
+      COUNT(*) FILTER (WHERE status = 'proposed') AS proposed,
+      COUNT(*) FILTER (WHERE status = 'approved') AS approved
+    FROM decisions
+  `).get() as { total: number; open_follow_ups: number; proposed: number; approved: number };
 
-  const openFollowUps = decisions.filter((d) => (d.follow_up_state ?? "open") === "open").length;
-  const proposedDecisions = decisions.filter((d) => d.status === "proposed").length;
-  const ratifiedDecisions = decisions.filter((d) => d.status === "approved").length;
   const totalRuns = (db.prepare("SELECT COUNT(*) as n FROM continuity_runs").get() as { n: number }).n;
 
   return Response.json({
     counts: {
       home: pendingReview,
       review: pendingReview,
-      proposals: proposedDecisions,
-      decisions_total: ratifiedDecisions,
+      proposals: decisionCounts.proposed,
+      decisions_total: decisionCounts.approved,
       runs: totalRuns,
     },
     pulse: {
       pendingReview,
-      decisions: decisions.length,
-      openFollowUps,
+      decisions: decisionCounts.total,
+      openFollowUps: decisionCounts.open_follow_ups,
       highPriorityReview,
-      urgency: highPriorityReview > 0 ? "high" : pendingReview > 0 || openFollowUps > 0 ? "medium" : "low",
+      urgency: highPriorityReview > 0 ? "high" : pendingReview > 0 || decisionCounts.open_follow_ups > 0 ? "medium" : "low",
     },
   });
 }

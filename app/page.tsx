@@ -204,6 +204,14 @@ function LoopPulse({
 }
 
 type HarvestMeta = { running: boolean; started_at?: string; last_run_ts?: string; last_submitted?: number; last_annotations?: number };
+type DashboardData = {
+  pendingReview: number;
+  ratifiedCount: number;
+  recentDecisions: Decision[];
+  metrics: Metrics;
+  annotationsByType: Record<string, number>;
+  harvestMeta: HarvestMeta;
+};
 
 export default function HomePage() {
   const [activeProject, setActiveProject] = useState<string | null>(null);
@@ -224,18 +232,15 @@ export default function HomePage() {
     setLoadError(null);
     const proj = project ? `?project=${project}` : "";
     try {
-      const [reviewData, decisionsData, metricsData, annotData] = await Promise.all([
-        fetch("/api/review-queue").then((r) => r.json()),
-        fetch("/api/decisions?status=approved&limit=500").then((r) => r.json()),
-        fetch(`/api/metrics${proj}`).then((r) => r.json()),
-        fetch("/api/run-annotations?limit=2000").then((r) => r.json()),
-      ]);
-      setPendingReview((reviewData.items ?? []).filter((i: { reviewed: boolean }) => !i.reviewed).length);
-      const entries: Decision[] = decisionsData.entries ?? [];
-      setRatifiedCount(entries.length);
-      setRecentDecisions(entries.slice(0, 4));
-      setMetrics(metricsData);
-      setAnnotationsByType(annotData.by_type ?? {});
+      const data = await fetch(`/api/dashboard${proj}`).then((r) => r.json()) as DashboardData;
+      setPendingReview(data.pendingReview ?? 0);
+      setRatifiedCount(data.ratifiedCount ?? 0);
+      setRecentDecisions(data.recentDecisions ?? []);
+      setMetrics(data.metrics ?? null);
+      setAnnotationsByType(data.annotationsByType ?? {});
+      const meta = data.harvestMeta ?? { running: false };
+      setHarvestMeta(meta);
+      if (meta.running) setHarvesting(true);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load dashboard data");
     } finally {
@@ -245,11 +250,6 @@ export default function HomePage() {
 
   useEffect(() => {
     load();
-    fetch("/api/harvest").then((r) => r.json()).then((d) => {
-      const m = d.meta ?? { running: false };
-      setHarvestMeta(m);
-      if (m.running) setHarvesting(true);
-    });
   }, []);
 
   // Poll while harvesting (survives navigation)
