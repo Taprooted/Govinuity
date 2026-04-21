@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { PATHS } from "../../../lib/config";
 
-const META_FILE = path.join(PATHS.metaDir, "harvest_meta.json");
+const META_FILE = path.join(/* turbopackIgnore: true */ PATHS.metaDir, "harvest_meta.json");
 const PROJECT_ROOT = /* turbopackIgnore: true */ process.cwd();
 
 type HarvestMeta = {
@@ -122,11 +122,11 @@ const HOME = process.env.HOME ?? process.env.USERPROFILE ?? "";
 
 function claudeProjectDirFor(projectPath: string): string {
   const resolved = path.isAbsolute(projectPath) ? projectPath : path.join(/* turbopackIgnore: true */ PROJECT_ROOT, projectPath);
-  return path.join(HOME, ".claude", "projects", resolved.replace(/[^A-Za-z0-9_-]/g, "-"));
+  return path.join(/* turbopackIgnore: true */ HOME, ".claude", "projects", resolved.replace(/[^A-Za-z0-9_-]/g, "-"));
 }
 
 function allClaudeProjectsDir(): string {
-  return path.join(HOME, ".claude", "projects");
+  return path.join(/* turbopackIgnore: true */ HOME, ".claude", "projects");
 }
 
 function defaultSessionDir(): string {
@@ -146,7 +146,7 @@ function tildify(p: string): string {
 
 function expandHome(p: string): string {
   if (p === "~") return HOME;
-  if (p.startsWith("~/")) return path.join(HOME, p.slice(2));
+  if (p.startsWith("~/")) return path.join(/* turbopackIgnore: true */ HOME, p.slice(2));
   return p;
 }
 
@@ -212,12 +212,12 @@ function collectJsonlFiles(dir: string): string[] {
   const files: string[] = [];
 
   for (const entry of entries) {
-    const full = path.join(dir, entry.name);
+    const full = path.join(/* turbopackIgnore: true */ dir, entry.name);
     if (entry.isFile() && entry.name.endsWith(".jsonl")) files.push(full);
     if (entry.isDirectory()) {
       try {
         for (const child of fs.readdirSync(/* turbopackIgnore: true */ full, { withFileTypes: true })) {
-          if (child.isFile() && child.name.endsWith(".jsonl")) files.push(path.join(full, child.name));
+          if (child.isFile() && child.name.endsWith(".jsonl")) files.push(path.join(/* turbopackIgnore: true */ full, child.name));
         }
       } catch {
         // Ignore unreadable project folders.
@@ -290,7 +290,7 @@ export async function POST(request: Request) {
   const maxFiles: number = Math.max(1, Math.min(100, Number(body.maxFiles) || 25));
   const scriptEnv = { ...process.env, GOVINUITY_URL: process.env.GOVINUITY_URL || new URL(request.url).origin };
 
-  const scriptPath = path.join(PROJECT_ROOT, "scripts", "harvest_proposals.py");
+  const scriptPath = path.join(/* turbopackIgnore: true */ PROJECT_ROOT, "scripts", "harvest_proposals.py");
   if (!fs.existsSync(scriptPath)) {
     return Response.json({ error: "harvest_proposals.py not found in scripts/" }, { status: 500 });
   }
